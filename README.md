@@ -193,12 +193,6 @@ The provider reports `supportsParallelism = true`. With the default `CF_BROWSER_
 
 The provider also staggers CDP connection attempts with `CF_BROWSER_RUN_LAUNCH_DELAY_MS`, defaulting to `1100`, retries transient Browser Run startup failures like `410 Gone` / `state: unhealthy`, and retries transient tunnel navigation failures like `ERR_CONNECTION_RESET` and `ERR_CONNECTION_REFUSED`.
 
-Run a simple concurrency comparison:
-
-```sh
-BROWSER_RUN_BENCHMARK_CONCURRENCY=1,4 pnpm benchmark:browser-run
-```
-
 ## Configuration
 
 Required for Browser Run:
@@ -245,8 +239,6 @@ The workflow expects these GitHub secrets:
 
 - `CF_ACCOUNT_ID`
 - `CF_API_TOKEN`
-
-The manual `benchmark` job runs `pnpm benchmark:browser-run` with `BROWSER_RUN_BENCHMARK_CONCURRENCY=1,4`.
 
 ## Upstream Shape
 
