@@ -1,48 +1,18 @@
-import { readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { loadEnvFile } from 'node:process';
 
 import { defineConfig } from 'vitest/config';
 
 import { browserRunCdp } from './test/browser-run-provider';
 
-loadDevVars();
+loadDotEnv();
 
 const browserApiPort = Number(process.env.VITEST_BROWSER_API_PORT ?? '63315');
 const browserRunConcurrency = Number(process.env.CF_BROWSER_RUN_CONCURRENCY ?? process.env.VITEST_MAX_WORKERS ?? '4');
 
-function loadDevVars(): void {
-	let text: string;
-	try {
-		text = readFileSync('.dev.vars', 'utf8');
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-			throw error;
-		}
-		return;
-	}
-
-	for (const line of text.split(/\r?\n/)) {
-		const trimmed = line.trim();
-		if (!trimmed || trimmed.startsWith('#')) {
-			continue;
-		}
-
-		const assignment = trimmed.startsWith('export ') ? trimmed.slice('export '.length).trim() : trimmed;
-		const equalsIndex = assignment.indexOf('=');
-		if (equalsIndex === -1) {
-			continue;
-		}
-
-		const key = assignment.slice(0, equalsIndex).trim();
-		let value = assignment.slice(equalsIndex + 1).trim();
-		if (!key || process.env[key] != null) {
-			continue;
-		}
-
-		if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-			value = value.slice(1, -1);
-		}
-
-		process.env[key] = value;
+function loadDotEnv(): void {
+	if (existsSync('.env')) {
+		loadEnvFile('.env');
 	}
 }
 

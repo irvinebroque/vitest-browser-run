@@ -39,12 +39,6 @@ jobs:
           fi
           printf '%s\n' 'Using Cloudflare Browser Run; this workflow intentionally does not install Playwright browsers.'
 
-      - name: Install cloudflared
-        run: |
-          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
-          chmod +x cloudflared
-          sudo mv cloudflared /usr/local/bin/cloudflared
-
       - name: Vitest visual regression on Browser Run
         run: npm run ci:browser-run:visual
 
@@ -78,12 +72,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Install cloudflared
-        run: |
-          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
-          chmod +x cloudflared
-          sudo mv cloudflared /usr/local/bin/cloudflared
 
       - name: Benchmark Browser Run parallelism
         run: npm run benchmark:browser-run

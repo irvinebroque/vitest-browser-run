@@ -16,7 +16,7 @@ The Worker application itself does not call Browser Run. Browser Run is only use
 sequenceDiagram
   participant CI as Local machine / GitHub Actions
   participant Vitest as Vitest Browser Mode
-  participant Tunnel as cloudflared tunnel
+  participant Tunnel as Tunnels SDK adapter
   participant Provider as chromiumCdp provider
   participant BR as Cloudflare Browser Run
   participant Chrome as Hosted Chromium
@@ -43,7 +43,8 @@ The key detail is that the browser is remote but the Vitest browser runner is lo
 
 - `vitest.browser-run.config.ts` configures Vitest Browser Mode for Browser Run.
 - `test/browser-run-provider.ts` implements the custom Vitest browser provider.
-- `scripts/run-browser-run-visual.mjs` starts `cloudflared` when needed and runs the visual suite.
+- `scripts/run-browser-run-visual.mjs` uses a Tunnels SDK-shaped quick tunnel adapter when needed and runs the visual suite.
+- `vendor/tunnels-sdk/expose.mjs` preserves the `expose(port)` / `close()` surface from `dmmulroy/tunnels-sdk` while the upstream package is not directly consumable from npm.
 - `.github/workflows/browser-run-visual.yml` runs the visual suite in CI without installing local Playwright browsers.
 - `test/browser/visual-*.browser.test.ts` contains the visual regression tests.
 - `test/browser/__screenshots__/**` contains committed Vitest screenshot baselines.
@@ -115,14 +116,14 @@ Run the normal Worker tests:
 npm test
 ```
 
-Set Browser Run credentials in the environment or in `.dev.vars`:
+Set Browser Run credentials in the environment or in `.env`:
 
 ```sh
 CF_ACCOUNT_ID="<account-id>"
 CF_API_TOKEN="<token-with-browser-rendering-edit>"
 ```
 
-`.dev.vars` is ignored by git via `.gitignore` and is loaded by `vitest.browser-run.config.ts` and `scripts/run-browser-run-visual.mjs` for local development.
+`.env` is ignored by git via `.gitignore` and is loaded by `vitest.browser-run.config.ts` and `scripts/run-browser-run-visual.mjs` for local development. The ignore rule also covers `.env.local` and environment-specific `.env.*` files, while still allowing a future `.env.example` to be committed.
 
 Run the Browser Run visual suite with an automatic quick tunnel:
 
@@ -144,13 +145,17 @@ npm run test:browser-run:visual
 npm run test:browser-run:visual:update
 ```
 
-The helper starts:
+The helper imports `vendor/tunnels-sdk/expose.mjs` and calls:
 
-```sh
-cloudflared tunnel --url http://127.0.0.1:63315 --no-autoupdate
+```js
+const tunnel = await expose(63315)
 ```
 
-It waits for `cloudflared` to print a `trycloudflare.com` URL and register a tunnel connection before starting Vitest.
+That adapter follows the `dmmulroy/tunnels-sdk` quick tunnel shape and uses `cloudflared` internally. It downloads a pinned `cloudflared` binary to `node_modules/.cache/tunnels/bin` when one is not provided, starts a quick tunnel for `http://127.0.0.1:63315`, waits for a `trycloudflare.com` URL and a registered tunnel connection, then closes the tunnel after Vitest exits.
+
+The adapter is vendored because the SDK package is currently in the `packages/tunnels` workspace of `dmmulroy/tunnels-sdk`, while npm git dependencies install the repository root package (`tunnels-monorepo`) rather than that workspace package. The public `tunnels` package name on npm is an unrelated package, and likely scoped names such as `@dmmulroy/tunnels` are not published. Once the SDK publishes the workspace package or provides a consumable tarball, this file should be replaced with a normal dependency and `import { expose } from '...'`.
+
+Cloudflare quick tunnels intentionally create random `*.trycloudflare.com` hostnames. They are suitable for short-lived CI and demos; use `VITEST_BROWSER_PUBLIC_ORIGIN` if you want to provide a different public runner origin.
 
 ## Visual Regression Flow
 
@@ -183,7 +188,7 @@ test/browser/__screenshots__/visual-dashboard.browser.test.ts/dashboard/desktop-
 
 The provider reports `supportsParallelism = true`. With the default `CF_BROWSER_RUN_BROWSER_PER_SESSION=true`, each parallel Vitest browser session gets its own Browser Run CDP browser connection. That is the hosted-browser fan-out this repo is meant to demonstrate.
 
-The provider also staggers CDP connection attempts with `CF_BROWSER_RUN_LAUNCH_DELAY_MS`, defaulting to `1100`, and retries transient tunnel navigation failures like `ERR_CONNECTION_RESET` and `ERR_CONNECTION_REFUSED`.
+The provider also staggers CDP connection attempts with `CF_BROWSER_RUN_LAUNCH_DELAY_MS`, defaulting to `1100`, retries transient Browser Run startup failures like `410 Gone` / `state: unhealthy`, and retries transient tunnel navigation failures like `ERR_CONNECTION_RESET` and `ERR_CONNECTION_REFUSED`.
 
 Run a simple concurrency comparison:
 
@@ -200,9 +205,11 @@ Required for Browser Run:
 
 Optional:
 
-- `VITEST_BROWSER_PUBLIC_ORIGIN` skips automatic `cloudflared` startup and uses the provided public runner origin.
+- `VITEST_BROWSER_PUBLIC_ORIGIN` skips automatic quick tunnel startup and uses the provided public runner origin.
 - `VITEST_BROWSER_API_PORT` changes the local Vitest browser runner port. The default is `63315`.
 - `VITEST_BROWSER_API_HOST` changes the local Vitest browser runner host. The default is `0.0.0.0`.
+- `TUNNELS_SDK_CLOUDFLARED_PATH` makes the Tunnels SDK adapter use an existing `cloudflared` binary instead of downloading one.
+- `TUNNELS_SDK_CLOUDFLARED_VERSION` overrides the adapter's pinned `cloudflared` release. The default matches the upstream SDK adapter at `2025.2.0`.
 - `CF_BROWSER_RUN_WS_ENDPOINT` bypasses Browser Run URL construction and uses a complete CDP WebSocket URL.
 - `CF_BROWSER_RUN_KEEP_ALIVE_MS` controls the Browser Run `keep_alive` query parameter. The default is `600000`.
 - `CF_BROWSER_RUN_RECORDING=true` appends `recording=true` so Browser Run records the session.
@@ -219,7 +226,7 @@ The workflow:
 
 - installs Node dependencies with `npm ci`
 - intentionally does not install local Playwright browsers
-- installs `cloudflared`
+- lets the Tunnels SDK adapter resolve `cloudflared` for the short-lived public runner URL
 - runs `npm run ci:browser-run:visual`
 - uploads `test/browser/**/__screenshots__/**` and `.vitest-attachments/**`
 

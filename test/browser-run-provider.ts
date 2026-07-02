@@ -5,6 +5,8 @@ import { defineBrowserProvider, resolveScreenshotPath } from '@vitest/browser';
 import { chromium, type Browser, type BrowserContext, type Frame, type FrameLocator, type Page } from 'playwright-core';
 import type { BrowserCommand, BrowserCommandContext, BrowserProvider, BrowserProviderOption, CDPSession, TestProject } from 'vitest/node';
 
+const cdpConnectAttempts = 3;
+
 export interface BrowserRunCdpOptions {
 	accountId?: string;
 	apiToken?: string;
@@ -299,17 +301,31 @@ class ChromiumCdpProvider implements BrowserProvider {
 	}
 
 	private async connectBrowser(browserKey: string, context: ChromiumCdpConnectContext): Promise<Browser> {
-		await this.waitForLaunchSlot();
-		this.log(`connecting CDP browser ${browserKey}`);
-
 		try {
-			const connection = await this.options.connect(context);
-			const browser = await chromium.connectOverCDP(connection.wsEndpoint, {
-				headers: connection.headers,
-			});
-			this.browsers.set(browserKey, browser);
-			this.log(`connected CDP browser ${browserKey}; active browsers: ${this.browsers.size}`);
-			return browser;
+			for (let attempt = 1; attempt <= cdpConnectAttempts; attempt += 1) {
+				await this.waitForLaunchSlot();
+				this.log(`connecting CDP browser ${browserKey}${attempt > 1 ? ` (attempt ${attempt}/${cdpConnectAttempts})` : ''}`);
+
+				try {
+					const connection = await this.options.connect(context);
+					const browser = await chromium.connectOverCDP(connection.wsEndpoint, {
+						headers: connection.headers,
+					});
+					this.browsers.set(browserKey, browser);
+					this.log(`connected CDP browser ${browserKey}; active browsers: ${this.browsers.size}`);
+					return browser;
+				} catch (error) {
+					if (attempt === cdpConnectAttempts || !isTransientCdpConnectError(error)) {
+						throw error;
+					}
+
+					const waitMs = Math.min(attempt * 2000, 5000);
+					this.log(`CDP browser ${browserKey} failed to connect; retrying in ${waitMs}ms`);
+					await new Promise((resolve) => setTimeout(resolve, waitMs));
+				}
+			}
+
+			throw new Error(`Could not connect CDP browser ${browserKey}.`);
 		} finally {
 			this.browserPromises.delete(browserKey);
 		}
@@ -436,4 +452,16 @@ function getBrowserRunApiToken(options: BrowserRunCdpOptions): string {
 function isTransientNavigationError(error: unknown): boolean {
 	const message = String(error);
 	return message.includes('ERR_CONNECTION_RESET') || message.includes('ERR_CONNECTION_REFUSED');
+}
+
+function isTransientCdpConnectError(error: unknown): boolean {
+	const message = String(error);
+	return (
+		message.includes('410 Gone')
+		|| message.includes('Browser not running')
+		|| message.includes('state: unhealthy')
+		|| message.includes('WebSocket was closed before the connection was established')
+		|| message.includes('ECONNRESET')
+		|| message.includes('ETIMEDOUT')
+	);
 }

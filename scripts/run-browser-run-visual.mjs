@@ -1,7 +1,11 @@
+import { existsSync } from 'node:fs';
 import { appendFile, readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
+import { loadEnvFile } from 'node:process';
 
-await loadDevVars();
+import { expose } from '../vendor/tunnels-sdk/expose.mjs';
+
+loadDotEnv();
 
 const browserApiPort = process.env.VITEST_BROWSER_API_PORT || '63315';
 const visualTestFiles = [
@@ -11,10 +15,14 @@ const visualTestFiles = [
 ];
 const vitestArgs = ['vitest', 'run', '--config', 'vitest.browser-run.config.ts', ...visualTestFiles, ...process.argv.slice(2)];
 
-let tunnelProcess;
+let tunnel;
 
 try {
-	const publicOrigin = process.env.VITEST_BROWSER_PUBLIC_ORIGIN || await startTunnel();
+	if (!process.env.VITEST_BROWSER_PUBLIC_ORIGIN) {
+		tunnel = await startTunnel();
+	}
+
+	const publicOrigin = process.env.VITEST_BROWSER_PUBLIC_ORIGIN || tunnel.url;
 	const startedAt = Date.now();
 	const result = await run('npx', vitestArgs, {
 		...process.env,
@@ -25,105 +33,19 @@ try {
 	await writeSummary({ publicOrigin, durationMs, exitCode: result });
 	process.exitCode = result;
 } finally {
-	stopTunnel();
-}
-
-function stopTunnel() {
-	if (tunnelProcess) {
-		tunnelProcess.kill('SIGTERM');
-		tunnelProcess = undefined;
-	}
+	await tunnel?.close();
 }
 
 async function startTunnel() {
-	return new Promise((resolve, reject) => {
-		const timeout = setTimeout(() => {
-			reject(new Error('Timed out waiting for cloudflared to create and register a trycloudflare.com tunnel.'));
-		}, 45_000);
-
-		tunnelProcess = spawn('cloudflared', ['tunnel', '--url', `http://127.0.0.1:${browserApiPort}`, '--no-autoupdate'], {
-			stdio: ['ignore', 'pipe', 'pipe'],
-		});
-
-		let output = '';
-		let publicOrigin;
-		let registered = false;
-		let resolved = false;
-
-		const maybeResolve = () => {
-			if (!resolved && publicOrigin && registered) {
-				resolved = true;
-				clearTimeout(timeout);
-				resolve(publicOrigin);
-			}
-		};
-
-		const onData = (chunk) => {
-			const text = chunk.toString();
-			output += text;
-			process.stderr.write(text);
-
-			const match = text.match(/https:\/\/[-a-z0-9]+\.trycloudflare\.com/i) ?? output.match(/https:\/\/[-a-z0-9]+\.trycloudflare\.com/i);
-			if (match) {
-				publicOrigin = match[0];
-				maybeResolve();
-			}
-
-			if (text.includes('Registered tunnel connection')) {
-				registered = true;
-				maybeResolve();
-			}
-		};
-
-		tunnelProcess.stdout.on('data', onData);
-		tunnelProcess.stderr.on('data', onData);
-		tunnelProcess.on('error', (error) => {
-			clearTimeout(timeout);
-			reject(new Error(`Failed to start cloudflared. Install cloudflared or set VITEST_BROWSER_PUBLIC_ORIGIN. ${error.message}`));
-		});
-		tunnelProcess.on('exit', (code) => {
-			if (!output.includes('trycloudflare.com')) {
-				clearTimeout(timeout);
-				reject(new Error(`cloudflared exited before creating a tunnel. Exit code: ${code}`));
-			}
-		});
+	return expose(Number(browserApiPort), {
+		host: '127.0.0.1',
+		logTo: process.stderr,
 	});
 }
 
-async function loadDevVars() {
-	let text;
-	try {
-		text = await readFile('.dev.vars', 'utf8');
-	} catch (error) {
-		if (error?.code !== 'ENOENT') {
-			throw error;
-		}
-		return;
-	}
-
-	for (const line of text.split(/\r?\n/)) {
-		const trimmed = line.trim();
-		if (!trimmed || trimmed.startsWith('#')) {
-			continue;
-		}
-
-		const assignment = trimmed.startsWith('export ') ? trimmed.slice('export '.length).trim() : trimmed;
-		const equalsIndex = assignment.indexOf('=');
-		if (equalsIndex === -1) {
-			continue;
-		}
-
-		const key = assignment.slice(0, equalsIndex).trim();
-		let value = assignment.slice(equalsIndex + 1).trim();
-		if (!key || process.env[key] != null) {
-			continue;
-		}
-
-		if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-			value = value.slice(1, -1);
-		}
-
-		process.env[key] = value;
+function loadDotEnv() {
+	if (existsSync('.env')) {
+		loadEnvFile('.env');
 	}
 }
 
