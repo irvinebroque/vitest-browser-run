@@ -11,6 +11,10 @@
 		"start": "vite dev",
 		"test": "vitest run --config vitest.config.ts",
 		"test:browser-run": "vitest run --config vitest.browser-run.config.ts",
+		"test:browser-run:visual": "vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts",
+		"test:browser-run:visual:update": "vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts --update",
+		"ci:browser-run:visual": "node scripts/run-browser-run-visual.mjs",
+		"benchmark:browser-run": "node scripts/benchmark-browser-run.mjs",
 		"test:watch": "vitest --config vitest.config.ts",
 		"cf-typegen": "wrangler types"
 	},
