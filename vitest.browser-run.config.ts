@@ -7,6 +7,7 @@ import { browserRunCdp } from './test/browser-run-provider';
 
 loadDotEnv();
 
+const browserApiHost = process.env.VITEST_BROWSER_API_HOST ?? '0.0.0.0';
 const browserApiPort = Number(process.env.VITEST_BROWSER_API_PORT ?? '63315');
 const browserRunConcurrency = Number(process.env.CF_BROWSER_RUN_CONCURRENCY ?? process.env.VITEST_MAX_WORKERS ?? '4');
 
@@ -16,17 +17,9 @@ function loadDotEnv(): void {
 	}
 }
 
-function readBoolean(value: string | undefined, defaultValue = false): boolean {
-	if (value == null) {
-		return defaultValue;
-	}
-
-	return value === '1' || value === 'true';
-}
-
 export default defineConfig({
 	server: {
-		host: process.env.VITEST_BROWSER_API_HOST ?? '0.0.0.0',
+		host: browserApiHost,
 		port: browserApiPort,
 		strictPort: true,
 		allowedHosts: true,
@@ -39,17 +32,7 @@ export default defineConfig({
 			enabled: true,
 			headless: true,
 			fileParallelism: true,
-			provider: browserRunCdp({
-				accountId: process.env.CF_ACCOUNT_ID ?? process.env.CLOUDFLARE_ACCOUNT_ID,
-				apiToken: process.env.CF_API_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN,
-				wsEndpoint: process.env.CF_BROWSER_RUN_WS_ENDPOINT,
-				publicOrigin: process.env.VITEST_BROWSER_PUBLIC_ORIGIN,
-				keepAliveMs: Number(process.env.CF_BROWSER_RUN_KEEP_ALIVE_MS ?? '600000'),
-				recording: readBoolean(process.env.CF_BROWSER_RUN_RECORDING),
-				browserPerSession: readBoolean(process.env.CF_BROWSER_RUN_BROWSER_PER_SESSION, true),
-				launchDelayMs: Number(process.env.CF_BROWSER_RUN_LAUNCH_DELAY_MS ?? '1100'),
-				logSessions: readBoolean(process.env.CF_BROWSER_RUN_LOG_SESSIONS, true),
-			}),
+			provider: browserRunCdp(),
 			expect: {
 				toMatchScreenshot: {
 					comparatorName: 'pixelmatch',
@@ -60,7 +43,7 @@ export default defineConfig({
 				},
 			},
 			api: {
-				host: process.env.VITEST_BROWSER_API_HOST ?? '0.0.0.0',
+				host: browserApiHost,
 				port: browserApiPort,
 				allowExec: true,
 				allowWrite: true,

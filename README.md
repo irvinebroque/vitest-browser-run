@@ -218,6 +218,14 @@ Optional:
 - `CF_BROWSER_RUN_LAUNCH_DELAY_MS` staggers CDP browser connection attempts. The default is `1100`.
 - `CF_BROWSER_RUN_LOG_SESSIONS=false` disables provider session logs.
 
+The base Vitest config intentionally keeps this simple:
+
+```ts
+provider: browserRunCdp()
+```
+
+`browserRunCdp()` reads the Browser Run env vars above and applies defaults internally. Pass explicit options only when a config file needs to override environment-driven behavior.
+
 ## CI
 
 `.github/workflows/browser-run-visual.yml` runs on pull requests, pushes to `main`, and manual dispatches.

@@ -40,16 +40,18 @@ export interface ChromiumCdpOptions {
 }
 
 export function browserRunCdp(options: BrowserRunCdpOptions = {}): BrowserProviderOption {
+	const resolved = resolveBrowserRunCdpOptions(options);
+
 	return chromiumCdp({
 		name: 'browser-run-cdp',
-		publicOrigin: options.publicOrigin,
+		publicOrigin: resolved.publicOrigin,
 		requirePublicOrigin: true,
-		browserPerSession: options.browserPerSession,
-		launchDelayMs: options.launchDelayMs,
-		logSessions: options.logSessions,
+		browserPerSession: resolved.browserPerSession,
+		launchDelayMs: resolved.launchDelayMs,
+		logSessions: resolved.logSessions,
 		connect: () => ({
-			wsEndpoint: getBrowserRunWsEndpoint(options),
-			headers: { Authorization: `Bearer ${getBrowserRunApiToken(options)}` },
+			wsEndpoint: getBrowserRunWsEndpoint(resolved),
+			headers: { Authorization: `Bearer ${getBrowserRunApiToken(resolved)}` },
 		}),
 	});
 }
@@ -420,6 +422,50 @@ function getDescribedLocator(context: ChromiumCdpCommandContext, locator: Screen
 
 	const playwrightLocator = context.iframe.locator(locator.selector);
 	return typeof playwrightLocator.describe === 'function' ? playwrightLocator.describe(locator.locator) : playwrightLocator;
+}
+
+function resolveBrowserRunCdpOptions(options: BrowserRunCdpOptions): Required<BrowserRunCdpOptions> {
+	return {
+		accountId: options.accountId ?? process.env.CF_ACCOUNT_ID ?? process.env.CLOUDFLARE_ACCOUNT_ID ?? '',
+		apiToken: options.apiToken ?? process.env.CF_API_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN ?? '',
+		wsEndpoint: options.wsEndpoint ?? process.env.CF_BROWSER_RUN_WS_ENDPOINT ?? '',
+		publicOrigin: options.publicOrigin ?? process.env.VITEST_BROWSER_PUBLIC_ORIGIN ?? '',
+		keepAliveMs: options.keepAliveMs ?? readNumber(process.env.CF_BROWSER_RUN_KEEP_ALIVE_MS, 600000, 'CF_BROWSER_RUN_KEEP_ALIVE_MS'),
+		recording: options.recording ?? readBoolean(process.env.CF_BROWSER_RUN_RECORDING, false, 'CF_BROWSER_RUN_RECORDING'),
+		browserPerSession: options.browserPerSession ?? readBoolean(process.env.CF_BROWSER_RUN_BROWSER_PER_SESSION, true, 'CF_BROWSER_RUN_BROWSER_PER_SESSION'),
+		launchDelayMs: options.launchDelayMs ?? readNumber(process.env.CF_BROWSER_RUN_LAUNCH_DELAY_MS, 1100, 'CF_BROWSER_RUN_LAUNCH_DELAY_MS'),
+		logSessions: options.logSessions ?? readBoolean(process.env.CF_BROWSER_RUN_LOG_SESSIONS, true, 'CF_BROWSER_RUN_LOG_SESSIONS'),
+	};
+}
+
+function readNumber(value: string | undefined, defaultValue: number, name: string): number {
+	if (value == null || value === '') {
+		return defaultValue;
+	}
+
+	const number = Number(value);
+	if (!Number.isFinite(number)) {
+		throw new Error(`Invalid ${name}: expected a number, got ${JSON.stringify(value)}.`);
+	}
+
+	return number;
+}
+
+function readBoolean(value: string | undefined, defaultValue: boolean, name: string): boolean {
+	if (value == null || value === '') {
+		return defaultValue;
+	}
+
+	const normalized = value.toLowerCase();
+	if (normalized === '1' || normalized === 'true') {
+		return true;
+	}
+
+	if (normalized === '0' || normalized === 'false') {
+		return false;
+	}
+
+	throw new Error(`Invalid ${name}: expected true, false, 1, or 0, got ${JSON.stringify(value)}.`);
 }
 
 function getBrowserRunWsEndpoint(options: BrowserRunCdpOptions): string {
