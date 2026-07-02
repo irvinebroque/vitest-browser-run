@@ -3,7 +3,7 @@ import { loadEnvFile } from 'node:process';
 
 import { defineConfig } from 'vitest/config';
 
-import { browserRunCdp } from './test/browser-run-provider';
+import { browserRunCdp } from '@vitest-browser-run/browser-run-provider';
 
 loadDotEnv();
 

@@ -6,7 +6,7 @@ The demo focuses on visual regression testing:
 
 - Vitest owns test discovery, test execution, `expect.element(...).toMatchScreenshot()`, baseline updates, and screenshot comparison.
 - Cloudflare Browser Run supplies hosted Chromium sessions over a standard CDP WebSocket.
-- The custom provider in `test/browser-run-provider.ts` is the glue between those two systems.
+- The custom provider package in `packages/browser-run-provider` is the glue between those two systems.
 
 The Worker application itself does not call Browser Run. Browser Run is only used as the browser infrastructure for Vitest Browser Mode.
 
@@ -41,8 +41,11 @@ The key detail is that the browser is remote but the Vitest browser runner is lo
 
 ## Main Files
 
+- `package.json` is the private example Worker package and workspace root.
+- `pnpm-workspace.yaml` declares local packages under `packages/*`.
+- `packages/browser-run-provider` is the reusable Vitest browser provider package consumed by the example via `workspace:*`.
 - `vitest.browser-run.config.ts` configures Vitest Browser Mode for Browser Run.
-- `test/browser-run-provider.ts` implements the custom Vitest browser provider.
+- `packages/browser-run-provider/src/index.ts` implements the custom Vitest browser provider package.
 - `scripts/run-browser-run-visual.mjs` uses a Tunnels SDK-shaped quick tunnel adapter when needed and runs the visual suite.
 - `vendor/tunnels-sdk/expose.mjs` preserves the `expose(port)` / `close()` surface from `dmmulroy/tunnels-sdk` while the upstream package is not directly consumable from npm.
 - `.github/workflows/browser-run-visual.yml` runs the visual suite in CI without installing local Playwright browsers.
@@ -51,7 +54,7 @@ The key detail is that the browser is remote but the Vitest browser runner is lo
 
 ## Provider Shape
 
-`test/browser-run-provider.ts` intentionally has two layers.
+`@vitest-browser-run/browser-run-provider` intentionally has two layers.
 
 `chromiumCdp()` is the generic layer:
 
@@ -107,13 +110,13 @@ That is why this is implemented at the provider layer rather than inside the Wor
 Install dependencies:
 
 ```sh
-npm ci
+pnpm install
 ```
 
 Run the normal Worker tests:
 
 ```sh
-npm test
+pnpm test
 ```
 
 Set Browser Run credentials in the environment or in `.env`:
@@ -128,21 +131,21 @@ CF_API_TOKEN="<token-with-browser-rendering-edit>"
 Run the Browser Run visual suite with an automatic quick tunnel:
 
 ```sh
-npm run ci:browser-run:visual
+pnpm ci:browser-run:visual
 ```
 
 Update visual baselines:
 
 ```sh
-npm run ci:browser-run:visual -- --update
+pnpm ci:browser-run:visual -- --update
 ```
 
 If you already have a public origin for the Vitest browser runner, set it and use the lower-level scripts directly:
 
 ```sh
 export VITEST_BROWSER_PUBLIC_ORIGIN="https://<your-public-origin>"
-npm run test:browser-run:visual
-npm run test:browser-run:visual:update
+pnpm test:browser-run:visual
+pnpm test:browser-run:visual:update
 ```
 
 The helper imports `vendor/tunnels-sdk/expose.mjs` and calls:
@@ -193,7 +196,7 @@ The provider also staggers CDP connection attempts with `CF_BROWSER_RUN_LAUNCH_D
 Run a simple concurrency comparison:
 
 ```sh
-BROWSER_RUN_BENCHMARK_CONCURRENCY=1,4 npm run benchmark:browser-run
+BROWSER_RUN_BENCHMARK_CONCURRENCY=1,4 pnpm benchmark:browser-run
 ```
 
 ## Configuration
@@ -232,10 +235,10 @@ provider: browserRunCdp()
 
 The workflow:
 
-- installs Node dependencies with `npm ci`
+- installs Node dependencies with `pnpm install --frozen-lockfile`
 - intentionally does not install local Playwright browsers
 - lets the Tunnels SDK adapter resolve `cloudflared` for the short-lived public runner URL
-- runs `npm run ci:browser-run:visual`
+- runs `pnpm ci:browser-run:visual`
 - uploads `test/browser/**/__screenshots__/**` and `.vitest-attachments/**`
 
 The workflow expects these GitHub secrets:
@@ -243,7 +246,7 @@ The workflow expects these GitHub secrets:
 - `CF_ACCOUNT_ID`
 - `CF_API_TOKEN`
 
-The manual `benchmark` job runs `npm run benchmark:browser-run` with `BROWSER_RUN_BENCHMARK_CONCURRENCY=1,4`.
+The manual `benchmark` job runs `pnpm benchmark:browser-run` with `BROWSER_RUN_BENCHMARK_CONCURRENCY=1,4`.
 
 ## Upstream Shape
 

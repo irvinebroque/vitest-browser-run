@@ -23,13 +23,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.1
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Confirm hosted browser path
         run: |
@@ -40,7 +44,7 @@ jobs:
           printf '%s\n' 'Using Cloudflare Browser Run; this workflow intentionally does not install Playwright browsers.'
 
       - name: Vitest visual regression on Browser Run
-        run: npm run ci:browser-run:visual
+        run: pnpm ci:browser-run:visual
 
       - name: Upload visual artifacts
         if: always()
@@ -65,16 +69,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.1
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Benchmark Browser Run parallelism
-        run: npm run benchmark:browser-run
+        run: pnpm benchmark:browser-run
 
       - name: Upload benchmark artifacts
         if: always()

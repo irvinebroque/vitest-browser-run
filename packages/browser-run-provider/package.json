@@ -1,0 +1,35 @@
+{
+	"name": "@vitest-browser-run/browser-run-provider",
+	"version": "0.0.0",
+	"type": "module",
+	"description": "Vitest Browser Mode provider for Cloudflare Browser Run over CDP",
+	"sideEffects": false,
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsc --project tsconfig.json",
+		"typecheck": "tsc --noEmit --project tsconfig.json"
+	},
+	"peerDependencies": {
+		"@vitest/browser": "^4.1.9",
+		"playwright-core": "^1.61.1",
+		"vitest": "^4.1.9"
+	},
+	"devDependencies": {
+		"@types/node": "26.1.0",
+		"@vitest/browser": "4.1.9",
+		"playwright-core": "1.61.1",
+		"typescript": "5.9.3",
+		"vitest": "4.1.9"
+	}
+}

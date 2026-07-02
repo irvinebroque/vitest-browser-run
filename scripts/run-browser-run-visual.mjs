@@ -13,7 +13,7 @@ const visualTestFiles = [
 	'test/browser/visual-parallel.browser.test.ts',
 	'test/browser/visual-review.browser.test.ts',
 ];
-const vitestArgs = ['vitest', 'run', '--config', 'vitest.browser-run.config.ts', ...visualTestFiles, ...process.argv.slice(2)];
+const vitestArgs = ['exec', 'vitest', 'run', '--config', 'vitest.browser-run.config.ts', ...visualTestFiles, ...process.argv.slice(2)];
 
 let tunnel;
 
@@ -24,7 +24,7 @@ try {
 
 	const publicOrigin = process.env.VITEST_BROWSER_PUBLIC_ORIGIN || tunnel.url;
 	const startedAt = Date.now();
-	const result = await run('npx', vitestArgs, {
+	const result = await run('pnpm', vitestArgs, {
 		...process.env,
 		VITEST_BROWSER_PUBLIC_ORIGIN: publicOrigin,
 	});
