@@ -2,6 +2,28 @@
 
 Minimal Cloudflare Worker app plus a Vitest Browser proof-of-concept that drives Cloudflare Browser Run through its CDP endpoint.
 
+## Where Browser Run Is Used
+
+The Worker application itself does not call Browser Run. Browser Run is used by the Vitest Browser provider that launches the browser for `npm run test:browser-run`.
+
+- `package.json` has the `test:browser-run` script, which runs `vitest.browser-run.config.ts`.
+- `vitest.browser-run.config.ts` selects the custom `browserRunCdp()` provider and reads `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `CF_BROWSER_RUN_WS_ENDPOINT`, and `VITEST_BROWSER_PUBLIC_ORIGIN`.
+- `test/browser-run-provider.ts` is the actual Browser Run integration. It builds the Cloudflare Browser Run CDP WebSocket URL:
+
+```ts
+new URL(`wss://api.cloudflare.com/client/v4/accounts/${this.options.accountId}/browser-rendering/devtools/browser`);
+```
+
+- The same provider connects Playwright to that Browser Run CDP endpoint:
+
+```ts
+chromium.connectOverCDP(this.getWsEndpoint(), {
+	headers: { Authorization: `Bearer ${this.getApiToken()}` },
+});
+```
+
+There is no `browser` binding in `wrangler.jsonc` because this demo is not launching Browser Run from inside a deployed Worker. It follows Cloudflare's CDP docs: Vitest runs locally or in CI, then connects to Browser Run over WebSocket using an API token.
+
 ## Integration Decision
 
 Adding Cloudflare Browser Run support directly to `@vitest/browser` does not look like the right layer.
