@@ -16,12 +16,12 @@ The Worker application itself does not call Browser Run. Browser Run is only use
 sequenceDiagram
   participant CI as Local machine / GitHub Actions
   participant Vitest as Vitest Browser Mode
-  participant Tunnel as Tunnels SDK adapter
+  participant Tunnel as Provider tunnel plugin
   participant Provider as chromiumCdp provider
   participant BR as Cloudflare Browser Run
   participant Chrome as Hosted Chromium
 
-  CI->>Tunnel: expose http://127.0.0.1:63315
+  CI->>Tunnel: browserRunTunnel exposes http://127.0.0.1:63315
   CI->>Vitest: vitest run --config vitest.browser-run.config.ts
   Vitest->>Provider: openPage(sessionId, local runner URL)
   Provider->>Provider: rewrite localhost URL to tunnel URL
@@ -46,8 +46,8 @@ The key detail is that the browser is remote but the Vitest browser runner is lo
 - `packages/browser-run-provider` is the reusable Vitest browser provider package consumed by the example via `workspace:*`.
 - `vitest.browser-run.config.ts` configures Vitest Browser Mode for Browser Run.
 - `packages/browser-run-provider/src/index.ts` implements the custom Vitest browser provider package.
-- `scripts/run-browser-run-visual.mjs` uses a Tunnels SDK-shaped quick tunnel adapter when needed and runs the visual suite.
-- `vendor/tunnels-sdk/expose.mjs` preserves the `expose(port)` / `close()` surface from `dmmulroy/tunnels-sdk` while the upstream package is not directly consumable from npm.
+- `packages/browser-run-provider/src/vitest-plugin.ts` starts the quick tunnel from the Vitest config when `VITEST_BROWSER_PUBLIC_ORIGIN` is not already set.
+- `packages/browser-run-provider/src/tunnel.ts` preserves the `expose(port)` / `close()` surface from `dmmulroy/tunnels-sdk` while the upstream package is not directly consumable from npm.
 - `.github/workflows/browser-run-visual.yml` runs the visual suite in CI without installing local Playwright browsers.
 - `test/browser/visual-*.browser.test.ts` contains the visual regression tests.
 - `test/browser/__screenshots__/**` contains committed Vitest screenshot baselines.
@@ -126,21 +126,21 @@ CF_ACCOUNT_ID="<account-id>"
 CF_API_TOKEN="<token-with-browser-rendering-edit>"
 ```
 
-`.env` is ignored by git via `.gitignore` and is loaded by `vitest.browser-run.config.ts` and `scripts/run-browser-run-visual.mjs` for local development. The ignore rule also covers `.env.local` and environment-specific `.env.*` files, while still allowing a future `.env.example` to be committed.
+`.env` is ignored by git via `.gitignore` and is loaded by `vitest.browser-run.config.ts` for local development. The ignore rule also covers `.env.local` and environment-specific `.env.*` files, while still allowing a future `.env.example` to be committed.
 
 Run the Browser Run visual suite with an automatic quick tunnel:
 
 ```sh
-pnpm ci:browser-run:visual
+pnpm test:browser-run:visual
 ```
 
 Update visual baselines:
 
 ```sh
-pnpm ci:browser-run:visual -- --update
+pnpm test:browser-run:visual:update
 ```
 
-If you already have a public origin for the Vitest browser runner, set it and use the lower-level scripts directly:
+If you already have a public origin for the Vitest browser runner, set it and run the same scripts. The tunnel plugin will skip quick tunnel startup:
 
 ```sh
 export VITEST_BROWSER_PUBLIC_ORIGIN="https://<your-public-origin>"
@@ -148,13 +148,18 @@ pnpm test:browser-run:visual
 pnpm test:browser-run:visual:update
 ```
 
-The helper imports `vendor/tunnels-sdk/expose.mjs` and calls:
+The Vitest config starts the tunnel and configures the provider:
 
-```js
-const tunnel = await expose(63315)
+```ts
+plugins: [browserRunTunnel({ port: browserApiPort })],
+test: {
+  browser: {
+    provider: browserRunCdp(),
+  },
+}
 ```
 
-That adapter follows the `dmmulroy/tunnels-sdk` quick tunnel shape and uses `cloudflared` internally. It downloads a pinned `cloudflared` binary to `node_modules/.cache/tunnels/bin` when one is not provided, starts a quick tunnel for `http://127.0.0.1:63315`, waits for a `trycloudflare.com` URL and a registered tunnel connection, then closes the tunnel after Vitest exits.
+The tunnel adapter follows the `dmmulroy/tunnels-sdk` quick tunnel shape and uses `cloudflared` internally. It downloads a pinned `cloudflared` binary to `node_modules/.cache/tunnels/bin` when one is not provided, starts a quick tunnel for `http://127.0.0.1:63315`, waits for a `trycloudflare.com` URL and a registered tunnel connection, then closes the tunnel when the Vitest server shuts down.
 
 The adapter is vendored because the SDK package is currently in the `packages/tunnels` workspace of `dmmulroy/tunnels-sdk`, while npm git dependencies install the repository root package (`tunnels-monorepo`) rather than that workspace package. The public `tunnels` package name on npm is an unrelated package, and likely scoped names such as `@dmmulroy/tunnels` are not published. Once the SDK publishes the workspace package or provides a consumable tarball, this file should be replaced with a normal dependency and `import { expose } from '...'`.
 
@@ -205,7 +210,7 @@ Optional:
 - `VITEST_BROWSER_PUBLIC_ORIGIN` skips automatic quick tunnel startup and uses the provided public runner origin.
 - `VITEST_BROWSER_API_PORT` changes the local Vitest browser runner port. The default is `63315`.
 - `VITEST_BROWSER_API_HOST` changes the local Vitest browser runner host. The default is `0.0.0.0`.
-- `TUNNELS_SDK_CLOUDFLARED_PATH` makes the Tunnels SDK adapter use an existing `cloudflared` binary instead of downloading one.
+- `TUNNELS_SDK_CLOUDFLARED_PATH` makes the tunnel adapter use an existing `cloudflared` binary instead of downloading one.
 - `TUNNELS_SDK_CLOUDFLARED_VERSION` overrides the adapter's pinned `cloudflared` release. The default matches the upstream SDK adapter at `2025.2.0`.
 - `CF_BROWSER_RUN_WS_ENDPOINT` bypasses Browser Run URL construction and uses a complete CDP WebSocket URL.
 - `CF_BROWSER_RUN_KEEP_ALIVE_MS` controls the Browser Run `keep_alive` query parameter. The default is `600000`.
@@ -231,8 +236,8 @@ The workflow:
 
 - installs Node dependencies with `pnpm install --frozen-lockfile`
 - intentionally does not install local Playwright browsers
-- lets the Tunnels SDK adapter resolve `cloudflared` for the short-lived public runner URL
-- runs `pnpm ci:browser-run:visual`
+- lets the provider tunnel adapter resolve `cloudflared` for the short-lived public runner URL
+- runs `pnpm test:browser-run:visual`
 - uploads `test/browser/**/__screenshots__/**` and `.vitest-attachments/**`
 
 The workflow expects these GitHub secrets:

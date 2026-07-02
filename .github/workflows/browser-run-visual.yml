@@ -44,7 +44,7 @@ jobs:
           printf '%s\n' 'Using Cloudflare Browser Run; this workflow intentionally does not install Playwright browsers.'
 
       - name: Vitest visual regression on Browser Run
-        run: pnpm ci:browser-run:visual
+        run: pnpm test:browser-run:visual
 
       - name: Upload visual artifacts
         if: always()

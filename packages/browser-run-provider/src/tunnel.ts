@@ -9,21 +9,35 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const PINNED_VERSION = process.env.TUNNELS_SDK_CLOUDFLARED_VERSION || '2025.2.0';
-const RELEASE_BASE = 'https://github.com/cloudflare/cloudflared/releases/download';
+const pinnedVersion = process.env.TUNNELS_SDK_CLOUDFLARED_VERSION || '2025.2.0';
+const releaseBase = 'https://github.com/cloudflare/cloudflared/releases/download';
+
+export interface TunnelOptions {
+	host?: string;
+	timeoutMs?: number;
+	waitForRegisteredConnection?: boolean;
+	logTo?: NodeJS.WritableStream;
+	binaryPath?: string;
+}
+
+export interface Tunnel {
+	url: string;
+	close: (signal?: NodeJS.Signals) => Promise<void>;
+	[Symbol.asyncDispose]: (signal?: NodeJS.Signals) => Promise<void>;
+}
 
 /**
  * Vendored quick-expose surface from dmmulroy/tunnels-sdk.
  *
  * The upstream repo currently keeps the usable SDK package in a monorepo
  * subdirectory that is not published to npm under the documented `tunnels`
- * package name. This module preserves the SDK's `expose(port)` API shape for
- * this example while keeping the integration self-contained.
+ * package name. This preserves the SDK's `expose(port)` API shape while keeping
+ * the provider package self-contained.
  *
  * Upstream source:
  * https://github.com/dmmulroy/tunnels-sdk/tree/5de2d2657f4ac22c29d75c45696978c28f4d0a36/packages/tunnels
  */
-export async function expose(port, options = {}) {
+export async function expose(port: number, options: TunnelOptions = {}): Promise<Tunnel> {
 	if (!Number.isInteger(port) || port <= 0 || port > 65535) {
 		throw new Error(`Invalid tunnel port: ${port}`);
 	}
@@ -32,22 +46,22 @@ export async function expose(port, options = {}) {
 	const timeoutMs = options.timeoutMs ?? 45_000;
 	const waitForRegisteredConnection = options.waitForRegisteredConnection ?? true;
 	const logTo = options.logTo;
-	const binaryPath = options.binaryPath || await ensureCloudflared();
+	const binaryPath = options.binaryPath ?? await ensureCloudflared();
 	const args = ['tunnel', '--url', `http://${host}:${port}`, '--no-autoupdate'];
 	const proc = spawn(binaryPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
 	let closed = false;
-	let url;
+	let url: string | undefined;
 	let registered = !waitForRegisteredConnection;
-	let settle;
-	let rejectReady;
+	let settle!: () => void;
+	let rejectReady!: (error: Error) => void;
 
-	const exitPromise = new Promise((resolve) => {
+	const exitPromise = new Promise<{ code: number; signal: NodeJS.Signals | null }>((resolve) => {
 		proc.once('exit', (code, signal) => resolve({ code: code ?? 1, signal }));
 		proc.once('error', () => resolve({ code: 1, signal: null }));
 	});
 
-	const ready = new Promise((resolve, reject) => {
+	const ready = new Promise<void>((resolve, reject) => {
 		settle = resolve;
 		rejectReady = reject;
 	});
@@ -58,14 +72,14 @@ export async function expose(port, options = {}) {
 	}, timeoutMs);
 	timeout.unref?.();
 
-	const maybeReady = () => {
+	const maybeReady = (): void => {
 		if (url && registered) {
 			clearTimeout(timeout);
 			settle();
 		}
 	};
 
-	const onData = (chunk) => {
+	const onData = (chunk: Buffer): void => {
 		const text = chunk.toString();
 		logTo?.write(text);
 
@@ -96,7 +110,7 @@ export async function expose(port, options = {}) {
 
 	await ready;
 
-	async function close(signal = 'SIGTERM') {
+	async function close(signal: NodeJS.Signals = 'SIGTERM'): Promise<void> {
 		if (closed) {
 			return;
 		}
@@ -115,40 +129,40 @@ export async function expose(port, options = {}) {
 	}
 
 	return {
-		url,
+		url: url!,
 		close,
 		[Symbol.asyncDispose]: close,
 	};
 }
 
 export const cloudflared = {
-	get path() {
+	get path(): string {
 		return join(getCacheDir(), getBinaryName());
 	},
-	get version() {
-		return normalizeVersion(PINNED_VERSION);
+	get version(): string {
+		return normalizeVersion(pinnedVersion);
 	},
-	async isInstalled() {
+	async isInstalled(): Promise<boolean> {
 		if (!existsSync(this.path)) {
 			return false;
 		}
 
 		try {
 			const { stdout } = await execFileAsync(this.path, ['--version']);
-			return stdout.includes('cloudflared') && stdout.includes(this.version);
+			return String(stdout).includes('cloudflared') && String(stdout).includes(this.version);
 		} catch {
 			return false;
 		}
 	},
-	async install() {
+	async install(): Promise<void> {
 		await installCloudflared(this.path, this.version);
 	},
-	async remove() {
+	async remove(): Promise<void> {
 		await rm(getCacheDir(), { recursive: true, force: true });
 	},
 };
 
-async function ensureCloudflared() {
+async function ensureCloudflared(): Promise<string> {
 	if (process.env.TUNNELS_SDK_CLOUDFLARED_PATH) {
 		return process.env.TUNNELS_SDK_CLOUDFLARED_PATH;
 	}
@@ -160,7 +174,7 @@ async function ensureCloudflared() {
 	return cloudflared.path;
 }
 
-async function installCloudflared(binaryPath, version) {
+async function installCloudflared(binaryPath: string, version: string): Promise<void> {
 	await mkdir(getCacheDir(), { recursive: true });
 
 	const response = await fetch(getDownloadUrl(version), { redirect: 'follow' });
@@ -176,7 +190,7 @@ async function installCloudflared(binaryPath, version) {
 			throw new Error('Empty cloudflared download response body.');
 		}
 
-		await pipeline(Readable.fromWeb(body), createWriteStream(binaryPath));
+		await pipeline(Readable.fromWeb(body as never), createWriteStream(binaryPath));
 	}
 
 	if (platform() !== 'win32') {
@@ -184,36 +198,37 @@ async function installCloudflared(binaryPath, version) {
 	}
 }
 
-async function extractTgz(response, destDir) {
+async function extractTgz(response: Response, destDir: string): Promise<void> {
 	const body = response.body;
 	if (!body) {
 		throw new Error('Empty cloudflared download response body.');
 	}
 
 	const tar = spawn('tar', ['xzf', '-', '-C', destDir], { stdio: ['pipe', 'ignore', 'pipe'] });
-	await pipeline(Readable.fromWeb(body), tar.stdin);
+	await pipeline(Readable.fromWeb(body as never), tar.stdin);
 
-	await new Promise((resolve, reject) => {
+	await new Promise<void>((resolve, reject) => {
 		tar.once('close', (code) => {
 			if (code === 0) {
 				resolve();
 				return;
 			}
+
 			reject(new Error(`tar extraction failed with code ${code}`));
 		});
 		tar.once('error', reject);
 	});
 }
 
-function getDownloadUrl(version) {
-	return `${RELEASE_BASE}/${normalizeVersion(version)}/${getAssetName()}`;
+function getDownloadUrl(version: string): string {
+	return `${releaseBase}/${normalizeVersion(version)}/${getAssetName()}`;
 }
 
-function normalizeVersion(version) {
+function normalizeVersion(version: string): string {
 	return version.replace(/^v/, '');
 }
 
-function getAssetName() {
+function getAssetName(): string {
 	const currentPlatform = platform();
 	const currentArch = arch();
 
@@ -241,13 +256,13 @@ function getAssetName() {
 	throw new Error(`Unsupported platform: ${currentPlatform}`);
 }
 
-function getBinaryName() {
+function getBinaryName(): string {
 	return platform() === 'win32' ? 'cloudflared.exe' : 'cloudflared';
 }
 
-function getCacheDir() {
+function getCacheDir(): string {
 	let dir = dirname(fileURLToPath(import.meta.url));
-	for (let i = 0; i < 10; i++) {
+	for (let i = 0; i < 10; i += 1) {
 		const nodeModulesDir = join(dir, 'node_modules');
 		if (existsSync(nodeModulesDir)) {
 			return join(nodeModulesDir, '.cache', 'tunnels', 'bin');
