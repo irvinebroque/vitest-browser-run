@@ -153,7 +153,8 @@ class BrowserRunCdpProvider implements BrowserProvider {
 		const pathPrefix = publicUrl.pathname.replace(/\/$/, '');
 
 		localUrl.protocol = publicUrl.protocol;
-		localUrl.host = publicUrl.host;
+		localUrl.hostname = publicUrl.hostname;
+		localUrl.port = publicUrl.port;
 		localUrl.pathname = `${pathPrefix}${localUrl.pathname}`;
 
 		return localUrl.href;

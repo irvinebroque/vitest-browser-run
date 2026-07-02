@@ -5,6 +5,9 @@ import { browserRunCdp } from './test/browser-run-provider';
 const browserApiPort = Number(process.env.VITEST_BROWSER_API_PORT ?? '63315');
 
 export default defineConfig({
+	server: {
+		allowedHosts: true,
+	},
 	test: {
 		include: ['test/browser/**/*.browser.test.ts'],
 		browser: {
