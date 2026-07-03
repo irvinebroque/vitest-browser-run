@@ -4,14 +4,8 @@ export function resolveBrowserRunnerPublicOrigin(publicOrigin: BrowserRunnerPubl
 	return (typeof publicOrigin === 'function' ? publicOrigin() : publicOrigin) ?? '';
 }
 
-export function resolveBrowserRunnerUrl(url: string, publicOrigin: string, requirePublicOrigin = false): string {
+export function resolveBrowserRunnerUrl(url: string, publicOrigin: string): string {
 	if (!publicOrigin) {
-		if (requirePublicOrigin) {
-			throw new Error(
-				"Missing VITEST_BROWSER_PUBLIC_ORIGIN. This CDP browser cannot reach localhost; expose Vitest's browser API with a tunnel and set its public origin.",
-			);
-		}
-
 		return url;
 	}
 

@@ -1,9 +1,11 @@
 import type { BrowserProviderOption } from 'vitest/node';
 
-import { browserCdp, type BrowserCdpConnection, type BrowserCdpOptions } from './browser-cdp.js';
+import { browserCdp, type BrowserCdpConnectOptions, type BrowserCdpOptions } from './browser-cdp.js';
 import { readBoolean, readNumber } from './env.js';
+import { resolveBrowserRunnerUrl, waitForLocalBrowserRunner } from './runner-origin.js';
 
 const cdpConnectAttempts = 3;
+const browserRunPublicOriginEnv = 'VITEST_BROWSER_PUBLIC_ORIGIN';
 
 export interface BrowserRunCdpOptions {
 	accountId?: string;
@@ -22,11 +24,14 @@ export interface ResolvedBrowserRunCdpOptions extends Required<BrowserRunCdpOpti
 export function browserRunCdp(options: BrowserRunCdpOptions = {}): BrowserProviderOption {
 	return browserCdp({
 		name: 'browser-run-cdp',
-		publicOrigin: () => resolveBrowserRunCdpOptions(options).publicOrigin,
-		requirePublicOrigin: true,
+		runner: {
+			resolveUrl: ({ url }) => resolveBrowserRunRunnerUrl(url, resolveBrowserRunCdpOptions(options).publicOrigin),
+			waitForReady: ({ url }) => waitForLocalBrowserRunner(url),
+		},
 		browserPerSession: options.browserPerSession ?? readBoolean(process.env.CF_BROWSER_RUN_BROWSER_PER_SESSION, true, 'CF_BROWSER_RUN_BROWSER_PER_SESSION'),
 		launchDelayMs: options.launchDelayMs ?? readNumber(process.env.CF_BROWSER_RUN_LAUNCH_DELAY_MS, 1100, 'CF_BROWSER_RUN_LAUNCH_DELAY_MS'),
 		logSessions: options.logSessions ?? readBoolean(process.env.CF_BROWSER_RUN_LOG_SESSIONS, true, 'CF_BROWSER_RUN_LOG_SESSIONS'),
+		contextStrategy: 'reuse-default-on-failure',
 		connectRetry: {
 			attempts: cdpConnectAttempts,
 			shouldRetry: isTransientBrowserRunCdpConnectError,
@@ -36,7 +41,7 @@ export function browserRunCdp(options: BrowserRunCdpOptions = {}): BrowserProvid
 	} satisfies BrowserCdpOptions);
 }
 
-export function createBrowserRunCdpConnection(options: ResolvedBrowserRunCdpOptions): BrowserCdpConnection {
+export function createBrowserRunCdpConnection(options: ResolvedBrowserRunCdpOptions): BrowserCdpConnectOptions {
 	return {
 		wsEndpoint: getBrowserRunWsEndpoint(options),
 		headers: { Authorization: `Bearer ${getBrowserRunApiToken(options)}` },
@@ -55,6 +60,16 @@ export function resolveBrowserRunCdpOptions(options: BrowserRunCdpOptions): Reso
 		launchDelayMs: options.launchDelayMs ?? readNumber(process.env.CF_BROWSER_RUN_LAUNCH_DELAY_MS, 1100, 'CF_BROWSER_RUN_LAUNCH_DELAY_MS'),
 		logSessions: options.logSessions ?? readBoolean(process.env.CF_BROWSER_RUN_LOG_SESSIONS, true, 'CF_BROWSER_RUN_LOG_SESSIONS'),
 	};
+}
+
+export function resolveBrowserRunRunnerUrl(url: string, publicOrigin: string): string {
+	if (!publicOrigin) {
+		throw new Error(
+			`Missing ${browserRunPublicOriginEnv}. Browser Run cannot reach localhost; expose Vitest's browser API with a tunnel and set its public origin.`,
+		);
+	}
+
+	return resolveBrowserRunnerUrl(url, publicOrigin);
 }
 
 export function getBrowserRunWsEndpoint(options: Pick<ResolvedBrowserRunCdpOptions, 'accountId' | 'keepAliveMs' | 'recording' | 'wsEndpoint'>): string {

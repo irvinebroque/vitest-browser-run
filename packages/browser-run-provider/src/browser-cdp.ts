@@ -1,25 +1,34 @@
 import { defineBrowserProvider } from '@vitest/browser';
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Frame, type FrameLocator, type Page } from 'playwright-core';
-import type { BrowserCommand, BrowserProvider, BrowserProviderOption, CDPSession, TestProject } from 'vitest/node';
+import type { BrowserCommand, BrowserProvider, BrowserProviderOption, TestProject } from 'vitest/node';
 
-import { registerBrowserCdpCommands } from './commands.js';
-import {
-	type BrowserRunnerPublicOrigin,
-	isTransientBrowserRunnerNavigationError,
-	resolveBrowserRunnerPublicOrigin,
-	resolveBrowserRunnerUrl,
-	waitForLocalBrowserRunner,
-} from './runner-origin.js';
+import { registerBrowserCdpCommands } from './commands/index.js';
+import { isTransientBrowserRunnerNavigationError } from './runner-origin.js';
+import type { BrowserCdpSession } from './types.js';
 
-export interface BrowserCdpConnection {
+export interface BrowserCdpConnectOptions {
 	wsEndpoint: string;
 	headers?: Record<string, string>;
+	timeout?: number;
 }
 
 export interface BrowserCdpConnectContext {
 	sessionId: string;
 	parallel: boolean;
 }
+
+export interface BrowserCdpRunnerContext {
+	url: string;
+	sessionId: string;
+	parallel: boolean;
+}
+
+export interface BrowserCdpRunnerOptions {
+	resolveUrl?: (context: BrowserCdpRunnerContext) => string | Promise<string>;
+	waitForReady?: (context: BrowserCdpRunnerContext) => void | Promise<void>;
+}
+
+export type BrowserCdpContextStrategy = 'new' | 'reuse-default-on-failure';
 
 export interface BrowserCdpRetryOptions {
 	attempts?: number;
@@ -29,13 +38,13 @@ export interface BrowserCdpRetryOptions {
 
 export interface BrowserCdpOptions {
 	name?: string;
-	connect: (context: BrowserCdpConnectContext) => BrowserCdpConnection | Promise<BrowserCdpConnection>;
-	publicOrigin?: BrowserRunnerPublicOrigin;
-	requirePublicOrigin?: boolean;
+	connect: (context: BrowserCdpConnectContext) => BrowserCdpConnectOptions | Promise<BrowserCdpConnectOptions>;
+	runner?: BrowserCdpRunnerOptions;
 	browserPerSession?: boolean;
 	launchDelayMs?: number;
 	logSessions?: boolean;
 	contextOptions?: BrowserContextOptions;
+	contextStrategy?: BrowserCdpContextStrategy;
 	commands?: Record<string, BrowserCommand>;
 	connectRetry?: BrowserCdpRetryOptions;
 	navigationRetry?: BrowserCdpRetryOptions;
@@ -43,7 +52,7 @@ export interface BrowserCdpOptions {
 
 export interface ChromiumCdpOptions extends BrowserCdpOptions {}
 
-export type ChromiumCdpConnection = BrowserCdpConnection;
+export type ChromiumCdpConnectOptions = BrowserCdpConnectOptions;
 export type ChromiumCdpConnectContext = BrowserCdpConnectContext;
 
 const defaultNavigationRetry: Required<BrowserCdpRetryOptions> = {
@@ -80,6 +89,7 @@ export class BrowserCdpProvider implements BrowserProvider {
 	private pages = new Map<string, Page>();
 	private launchQueue: Promise<void> = Promise.resolve();
 	private nextLaunchAt = 0;
+	private closing = false;
 
 	constructor(
 		private project: TestProject,
@@ -125,19 +135,28 @@ export class BrowserCdpProvider implements BrowserProvider {
 	}
 
 	async openPage(sessionId: string, url: string, options: { parallel: boolean } = { parallel: false }): Promise<void> {
-		const publicOrigin = resolveBrowserRunnerPublicOrigin(this.options.publicOrigin);
-		const browserUrl = resolveBrowserRunnerUrl(url, publicOrigin, this.options.requirePublicOrigin);
-		this.log(`opening browser runner ${url} via ${browserUrl}`);
+		await this.throwIfClosing();
 
-		if (publicOrigin) {
-			await waitForLocalBrowserRunner(url);
-		}
+		const runnerContext: BrowserCdpRunnerContext = {
+			url,
+			sessionId,
+			parallel: options.parallel,
+		};
+		const browserUrl = await this.resolveBrowserRunnerUrl(runnerContext);
+		this.log(browserUrl === url ? `opening browser runner ${url}` : `opening browser runner ${url} via ${browserUrl}`);
+
+		await this.options.runner?.waitForReady?.(runnerContext);
+		await this.throwIfClosing();
 
 		const browser = await this.openBrowser(this.getBrowserKey(sessionId, options.parallel), {
 			sessionId,
 			parallel: options.parallel,
 		});
+		await this.throwIfClosing(browser);
+
 		const context = await this.getContext(sessionId, browser);
+		await this.throwIfClosing(context);
+
 		const previousPage = this.pages.get(sessionId);
 
 		if (previousPage && !previousPage.isClosed()) {
@@ -145,11 +164,14 @@ export class BrowserCdpProvider implements BrowserProvider {
 		}
 
 		const page = await context.newPage();
+		await this.throwIfClosing(page);
+
 		this.pages.set(sessionId, page);
 		await this.gotoBrowserRunner(page, browserUrl);
+		await this.throwIfClosing(page);
 	}
 
-	async getCDPSession(sessionId: string): Promise<CDPSession> {
+	async getCDPSession(sessionId: string): Promise<BrowserCdpSession> {
 		const page = this.pages.get(sessionId);
 		if (!page) {
 			throw new Error(`Chromium CDP page for session ${sessionId} was not opened.`);
@@ -161,18 +183,36 @@ export class BrowserCdpProvider implements BrowserProvider {
 			on: session.on.bind(session),
 			off: session.off.bind(session),
 			once: session.once.bind(session),
-		} as CDPSession;
+		};
 	}
 
 	async close(): Promise<void> {
-		await Promise.all([...this.pages.values()].filter((page) => !page.isClosed()).map((page) => page.close()));
+		this.closing = true;
+		await Promise.allSettled(this.browserPromises.values());
+		this.browserPromises.clear();
+
+		for (const page of this.pages.values()) {
+			if (!page.isClosed()) {
+				await page.close().catch(() => undefined);
+			}
+		}
 		this.pages.clear();
-		await Promise.all([...this.contexts.values()].map((context) => context.close().catch(() => undefined)));
+
+		for (const context of new Set(this.contexts.values())) {
+			await context.close().catch(() => undefined);
+		}
 		this.contexts.clear();
 
-		await Promise.all([...this.browsers.values()].filter((browser) => browser.isConnected()).map((browser) => browser.close()));
+		for (const browser of new Set(this.browsers.values())) {
+			if (browser.isConnected()) {
+				await browser.close().catch(() => undefined);
+			}
+		}
 		this.browsers.clear();
-		this.browserPromises.clear();
+	}
+
+	private async resolveBrowserRunnerUrl(context: BrowserCdpRunnerContext): Promise<string> {
+		return await this.options.runner?.resolveUrl?.(context) ?? context.url;
 	}
 
 	private async gotoBrowserRunner(page: Page, url: string): Promise<void> {
@@ -226,6 +266,8 @@ export class BrowserCdpProvider implements BrowserProvider {
 	}
 
 	private async openBrowser(browserKey: string, context: BrowserCdpConnectContext): Promise<Browser> {
+		await this.throwIfClosing();
+
 		const existingBrowser = this.browsers.get(browserKey);
 		if (existingBrowser?.isConnected()) {
 			return existingBrowser;
@@ -248,14 +290,21 @@ export class BrowserCdpProvider implements BrowserProvider {
 			const attempts = getRetryAttempts(retry, 'connectRetry');
 
 			for (let attempt = 1; attempt <= attempts; attempt += 1) {
+				await this.throwIfClosing();
 				await this.waitForLaunchSlot();
+				await this.throwIfClosing();
 				this.log(`connecting CDP browser ${browserKey}${attempt > 1 ? ` (attempt ${attempt}/${attempts})` : ''}`);
 
 				try {
 					const connection = await this.options.connect(context);
+					await this.throwIfClosing();
+
 					const browser = await chromium.connectOverCDP(connection.wsEndpoint, {
 						headers: connection.headers,
+						timeout: connection.timeout,
 					});
+					await this.throwIfClosing(browser);
+
 					this.browsers.set(browserKey, browser);
 					this.log(`connected CDP browser ${browserKey}; active browsers: ${this.browsers.size}`);
 					return browser;
@@ -283,13 +332,18 @@ export class BrowserCdpProvider implements BrowserProvider {
 			return existingContext;
 		}
 
-		const context = await browser
-			.newContext({
-				ignoreHTTPSErrors: true,
-				viewport: this.project.config.browser.viewport,
-				...this.options.contextOptions,
-			})
-			.catch(() => browser.contexts()[0]);
+		const contextOptions: BrowserContextOptions = {
+			ignoreHTTPSErrors: true,
+			viewport: this.project.config.browser.viewport,
+			...this.options.contextOptions,
+		};
+		const context = await browser.newContext(contextOptions).catch((error: unknown) => {
+			if (this.options.contextStrategy !== 'reuse-default-on-failure') {
+				throw error;
+			}
+
+			return browser.contexts()[0];
+		});
 
 		if (!context) {
 			throw new Error(`Could not create or reuse a Chromium CDP context for session ${sessionId}.`);
@@ -304,6 +358,8 @@ export class BrowserCdpProvider implements BrowserProvider {
 	}
 
 	private async waitForLaunchSlot(): Promise<void> {
+		await this.throwIfClosing();
+
 		const launchDelayMs = this.options.launchDelayMs ?? 0;
 		if (launchDelayMs <= 0) {
 			return;
@@ -330,6 +386,15 @@ export class BrowserCdpProvider implements BrowserProvider {
 		}
 	}
 
+	private async throwIfClosing(disposable?: { close: () => Promise<void> }): Promise<void> {
+		if (!this.closing) {
+			return;
+		}
+
+		await disposable?.close().catch(() => undefined);
+		throw new Error('[vitest] The CDP browser provider was closed.');
+	}
+
 	private log(message: string): void {
 		if (this.options.logSessions) {
 			this.project.vitest.logger.log(`[${this.name}] ${message}`);
@@ -344,13 +409,4 @@ function getRetryAttempts(options: BrowserCdpRetryOptions | undefined, name: str
 	}
 
 	return attempts;
-}
-
-declare module 'vitest/node' {
-	export interface BrowserCommandContext {
-		page: Page;
-		context: BrowserContext;
-		frame: () => Promise<Frame>;
-		iframe: FrameLocator;
-	}
 }
