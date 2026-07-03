@@ -2,7 +2,7 @@
 	"name": "@vitest-browser-run/browser-run-provider",
 	"version": "0.0.0",
 	"type": "module",
-	"description": "Vitest Browser Mode provider for Cloudflare Browser Run over CDP",
+	"description": "Generic Vitest Browser Mode provider for Chromium CDP with a Cloudflare Browser Run connector",
 	"sideEffects": false,
 	"exports": {
 		".": {

@@ -17,7 +17,7 @@ sequenceDiagram
   participant CI as Local machine / GitHub Actions
   participant Vitest as Vitest Browser Mode
   participant Tunnel as Provider tunnel plugin
-  participant Provider as chromiumCdp provider
+  participant Provider as browserCdp provider
   participant BR as Cloudflare Browser Run
   participant Chrome as Hosted Chromium
 
@@ -45,7 +45,10 @@ The key detail is that the browser is remote but the Vitest browser runner is lo
 - `pnpm-workspace.yaml` declares local packages under `packages/*`.
 - `packages/browser-run-provider` is the reusable Vitest browser provider package consumed by the example via `workspace:*`.
 - `vitest.browser-run.config.ts` configures Vitest Browser Mode for Browser Run.
-- `packages/browser-run-provider/src/index.ts` implements the custom Vitest browser provider package.
+- `packages/browser-run-provider/src/browser-cdp.ts` implements the generic Vitest Browser Mode provider for Chromium CDP endpoints.
+- `packages/browser-run-provider/src/browser-run.ts` adapts Cloudflare Browser Run credentials/options into a `browserCdp()` connector.
+- `packages/browser-run-provider/src/runner-origin.ts` rewrites local Vitest browser runner URLs to a public origin.
+- `packages/browser-run-provider/src/commands.ts` registers Vitest screenshot, viewport, and standard user-event commands backed by Playwright locators/input APIs.
 - `packages/browser-run-provider/src/vitest-plugin.ts` starts the quick tunnel from the Vitest config when `VITEST_BROWSER_PUBLIC_ORIGIN` is not already set.
 - `packages/browser-run-provider/src/tunnel.ts` preserves the `expose(port)` / `close()` surface from `dmmulroy/tunnels-sdk` while the upstream package is not directly consumable from npm.
 - `.github/workflows/browser-run-visual.yml` runs the visual suite in CI without installing local Playwright browsers.
@@ -54,12 +57,13 @@ The key detail is that the browser is remote but the Vitest browser runner is lo
 
 ## Provider Shape
 
-`@vitest-browser-run/browser-run-provider` intentionally has two layers.
+`@vitest-browser-run/browser-run-provider` intentionally separates the generic Vitest/CDP provider from the Cloudflare Browser Run connector.
 
-`chromiumCdp()` is the generic layer:
+`browserCdp()` is the upstream-shaped generic layer:
 
 ```ts
-chromiumCdp({
+browserCdp({
+  name: 'browser-cdp',
   connect: async ({ sessionId, parallel }) => ({
     wsEndpoint: 'wss://example.com/devtools/browser',
     headers: { Authorization: 'Bearer ...' },
@@ -68,7 +72,7 @@ chromiumCdp({
 })
 ```
 
-That layer knows how to satisfy Vitest's provider contract using Playwright's CDP client:
+That layer knows how to satisfy Vitest's provider contract using Playwright's CDP client and a `connect()` callback:
 
 - `openPage(sessionId, url, options)` creates or reuses a browser for the Vitest session.
 - `close()` closes pages, contexts, and CDP browser connections.
@@ -76,8 +80,10 @@ That layer knows how to satisfy Vitest's provider contract using Playwright's CD
 - `getCommandsContext(sessionId)` returns the Playwright `page`, `context`, `frame`, and `iframe` handles used by provider commands.
 - `__vitest_takeScreenshot` is registered so Vitest's native screenshot matcher can ask Playwright for a screenshot.
 - `__vitest_viewport` is registered so `page.viewport(width, height)` works in the tests.
+- Standard Vitest user-event commands such as click, hover, fill, type, select, upload, wheel, and drag-and-drop are registered against Playwright locator/input APIs.
+- `chromiumCdp()` remains as a compatibility alias with the older default provider name.
 
-`browserRunCdp()` is the Cloudflare-specific wrapper. It builds the Browser Run CDP endpoint and authorization header:
+`browserRunCdp()` is the Cloudflare-specific connector wrapper. It builds the Browser Run CDP endpoint and authorization header, then delegates to `browserCdp()`:
 
 ```txt
 wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=600000
@@ -85,6 +91,8 @@ Authorization: Bearer <API_TOKEN>
 ```
 
 If `CF_BROWSER_RUN_RECORDING=true`, the wrapper appends `recording=true` to the CDP URL. Browser Run recordings are available after the browser session closes.
+
+Browser Run-specific behavior is intentionally outside the generic provider: env var resolution, endpoint construction, auth headers, connection retry classification, and Browser Run defaults live in `browser-run.ts`. Public runner origin rewriting lives in `runner-origin.ts`, and GitHub summary output lives in `ci-summary.ts`.
 
 Because these are normal Browser Run CDP sessions, active sessions can also be inspected with Browser Run Live View from the Cloudflare dashboard. This repo does not fetch or print Live View URLs programmatically.
 
@@ -247,9 +255,11 @@ The workflow expects these GitHub secrets:
 
 ## Upstream Shape
 
-The generic integration point is not Cloudflare-specific. A reusable version would likely be either:
+The generic integration point is not Cloudflare-specific. This repo now models the shape that could become a reusable `@vitest/browser-cdp` provider:
 
-- a generic `@vitest/browser-cdp` provider that accepts `{ wsEndpoint, headers }` or a `connect()` callback
-- a `connectOverCDPOptions` branch in `@vitest/browser-playwright`
+- `browserCdp()` accepts a `connect()` callback that returns `{ wsEndpoint, headers }`.
+- The provider owns Vitest Browser Mode session/page/context lifecycle and CDP session bridging.
+- Connectors such as `browserRunCdp()` own product-specific endpoint construction, auth, defaults, and retry classification.
+- Support code such as public runner origin rewriting, tunnel startup, and CI summaries stays outside the generic provider.
 
-Browser Run would then be a very small wrapper that converts Cloudflare account/token/options into a CDP endpoint and headers.
+An alternative upstream path would be a `connectOverCDPOptions` branch in `@vitest/browser-playwright`. The important boundary is the same either way: Browser Run should remain a small connector that converts Cloudflare account/token/options into a CDP endpoint and headers.
