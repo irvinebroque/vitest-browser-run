@@ -15,8 +15,7 @@
 		"test:browser-run": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts",
 		"test:browser-run:visual": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts",
 		"test:browser-run:visual:update": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts --update",
-		"ci:browser-run:visual": "pnpm build:provider && node scripts/run-browser-run-visual.mjs",
-		"typecheck": "tsc --noEmit --project tsconfig.json && tsc --noEmit --project test/tsconfig.json && tsc --noEmit --project test/browser/tsconfig.json && pnpm --filter @vitest-browser-run/browser-run-provider typecheck",
+		"typecheck": "pnpm build:provider && tsc --noEmit --project tsconfig.json && tsc --noEmit --project test/tsconfig.json && tsc --noEmit --project test/browser/tsconfig.json && pnpm --filter @vitest-browser-run/browser-run-provider typecheck",
 		"test:watch": "vitest --config vitest.config.ts",
 		"cf-typegen": "wrangler types"
 	},

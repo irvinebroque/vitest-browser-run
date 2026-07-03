@@ -3,7 +3,7 @@ import { loadEnvFile } from 'node:process';
 
 import { defineConfig } from 'vitest/config';
 
-import { browserRunCdp } from '@vitest-browser-run/browser-run-provider';
+import { browserRunCdp, browserRunTunnel } from '@vitest-browser-run/browser-run-provider';
 
 loadDotEnv();
 
@@ -18,6 +18,7 @@ function loadDotEnv(): void {
 }
 
 export default defineConfig({
+	plugins: [browserRunTunnel({ port: browserApiPort })],
 	server: {
 		host: browserApiHost,
 		port: browserApiPort,

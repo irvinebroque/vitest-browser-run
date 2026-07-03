@@ -5,6 +5,9 @@ import { defineBrowserProvider, resolveScreenshotPath } from '@vitest/browser';
 import { chromium, type Browser, type BrowserContext, type Frame, type FrameLocator, type Page } from 'playwright-core';
 import type { BrowserCommand, BrowserCommandContext, BrowserProvider, BrowserProviderOption, CDPSession, TestProject } from 'vitest/node';
 
+export { browserRunTunnel, type BrowserRunTunnelOptions } from './vitest-plugin.js';
+export { cloudflared, expose, type Tunnel, type TunnelOptions } from './tunnel.js';
+
 const cdpConnectAttempts = 3;
 
 export interface BrowserRunCdpOptions {
@@ -32,7 +35,7 @@ export interface ChromiumCdpConnectContext {
 export interface ChromiumCdpOptions {
 	name?: string;
 	connect: (context: ChromiumCdpConnectContext) => ChromiumCdpConnection | Promise<ChromiumCdpConnection>;
-	publicOrigin?: string;
+	publicOrigin?: string | (() => string | undefined);
 	requirePublicOrigin?: boolean;
 	browserPerSession?: boolean;
 	launchDelayMs?: number;
@@ -40,19 +43,20 @@ export interface ChromiumCdpOptions {
 }
 
 export function browserRunCdp(options: BrowserRunCdpOptions = {}): BrowserProviderOption {
-	const resolved = resolveBrowserRunCdpOptions(options);
-
 	return chromiumCdp({
 		name: 'browser-run-cdp',
-		publicOrigin: resolved.publicOrigin,
+		publicOrigin: () => resolveBrowserRunCdpOptions(options).publicOrigin,
 		requirePublicOrigin: true,
-		browserPerSession: resolved.browserPerSession,
-		launchDelayMs: resolved.launchDelayMs,
-		logSessions: resolved.logSessions,
-		connect: () => ({
-			wsEndpoint: getBrowserRunWsEndpoint(resolved),
-			headers: { Authorization: `Bearer ${getBrowserRunApiToken(resolved)}` },
-		}),
+		browserPerSession: options.browserPerSession ?? readBoolean(process.env.CF_BROWSER_RUN_BROWSER_PER_SESSION, true, 'CF_BROWSER_RUN_BROWSER_PER_SESSION'),
+		launchDelayMs: options.launchDelayMs ?? readNumber(process.env.CF_BROWSER_RUN_LAUNCH_DELAY_MS, 1100, 'CF_BROWSER_RUN_LAUNCH_DELAY_MS'),
+		logSessions: options.logSessions ?? readBoolean(process.env.CF_BROWSER_RUN_LOG_SESSIONS, true, 'CF_BROWSER_RUN_LOG_SESSIONS'),
+		connect: () => {
+			const resolved = resolveBrowserRunCdpOptions(options);
+			return {
+				wsEndpoint: getBrowserRunWsEndpoint(resolved),
+				headers: { Authorization: `Bearer ${getBrowserRunApiToken(resolved)}` },
+			};
+		},
 	});
 }
 
@@ -209,11 +213,16 @@ class ChromiumCdpProvider implements BrowserProvider {
 
 		for (let attempt = 1; attempt <= 8; attempt += 1) {
 			try {
-				await page.goto(url, { timeout: 0 });
+				await page.goto(url, { timeout: 0, waitUntil: 'commit' });
 				return;
 			} catch (error) {
 				lastError = error;
-				if (attempt === 8 || !isTransientNavigationError(error)) {
+				const transient = isTransientNavigationError(error);
+				if (transient && await this.hasBrowserRunnerFrame(page)) {
+					return;
+				}
+
+				if (attempt === 8 || !transient) {
 					throw error;
 				}
 
@@ -226,8 +235,21 @@ class ChromiumCdpProvider implements BrowserProvider {
 		throw lastError;
 	}
 
+	private async hasBrowserRunnerFrame(page: Page): Promise<boolean> {
+		if (page.frame('vitest-iframe')) {
+			return true;
+		}
+
+		try {
+			await page.waitForSelector('[data-vitest="true"]', { timeout: 250 });
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
 	private async waitForLocalBrowserRunner(url: string): Promise<void> {
-		if (!this.options.publicOrigin) {
+		if (!this.getPublicOrigin()) {
 			return;
 		}
 
@@ -392,7 +414,9 @@ class ChromiumCdpProvider implements BrowserProvider {
 	}
 
 	private toPublicBrowserUrl(url: string): string {
-		if (!this.options.publicOrigin) {
+		const publicOrigin = this.getPublicOrigin();
+
+		if (!publicOrigin) {
 			if (this.options.requirePublicOrigin) {
 				throw new Error(
 					"Missing VITEST_BROWSER_PUBLIC_ORIGIN. This CDP browser cannot reach localhost; expose Vitest's browser API with a tunnel and set its public origin.",
@@ -403,7 +427,7 @@ class ChromiumCdpProvider implements BrowserProvider {
 		}
 
 		const localUrl = new URL(url);
-		const publicUrl = new URL(this.options.publicOrigin);
+		const publicUrl = new URL(publicOrigin);
 		const pathPrefix = publicUrl.pathname.replace(/\/$/, '');
 
 		localUrl.protocol = publicUrl.protocol;
@@ -412,6 +436,11 @@ class ChromiumCdpProvider implements BrowserProvider {
 		localUrl.pathname = `${pathPrefix}${localUrl.pathname}`;
 
 		return localUrl.href;
+	}
+
+	private getPublicOrigin(): string {
+		const publicOrigin = typeof this.options.publicOrigin === 'function' ? this.options.publicOrigin() : this.options.publicOrigin;
+		return publicOrigin ?? '';
 	}
 }
 
