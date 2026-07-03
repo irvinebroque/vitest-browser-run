@@ -11,7 +11,7 @@
 		"dev": "vite dev",
 		"preview": "pnpm build && vite preview",
 		"start": "vite dev",
-		"test": "vitest run --config vitest.config.ts",
+		"test": "pnpm --filter @vitest-browser-run/browser-run-provider test && vitest run --config vitest.config.ts",
 		"test:browser-run": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts",
 		"test:browser-run:visual": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts",
 		"test:browser-run:visual:update": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts --update",
