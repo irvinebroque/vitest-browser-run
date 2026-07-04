@@ -9,7 +9,7 @@ The demo focuses on visual regression testing:
 - Cloudflare Browser Run supplies hosted Chromium sessions over a standard CDP WebSocket.
 - The package in `packages/browser-run-provider` is now only the Cloudflare Browser Run connector around that Playwright provider.
 
-This proof is wired to two pending upstream PRs. `irvinebroque/vitest#1` adds a Chromium `connectOverCDPOptions` path plus runner URL hooks to `@vitest/browser-playwright`. `irvinebroque/workers-sdk#9` lets `@cloudflare/vite-plugin` publish tunnel URLs via `tunnel.env` and `tunnel.onReady`. Until those changes are merged and published, this repo intentionally uses local `link:` dependencies to sibling checkouts.
+This proof is wired to two pending upstream PRs. `irvinebroque/vitest#1` adds a Chromium `connectOverCDPOptions` path, runner URL hooks, Browser Mode RPC markers for tunneled WebSockets, and safer handling for third-party Vite environments. `irvinebroque/workers-sdk#9` lets `@cloudflare/vite-plugin` publish tunnel URLs via `tunnel.env` and `tunnel.onReady`. Until those changes are merged and published, this repo intentionally uses local `link:` dependencies to sibling checkouts.
 
 The Worker application itself does not call Browser Run. Browser Run is only used as the browser infrastructure for Vitest Browser Mode.
 
@@ -113,7 +113,7 @@ playwright({
 	},
 	runner: {
 		resolveUrl: ({ url }) => resolveBrowserRunRunnerUrl(url, publicOrigin),
-		waitForReady: ({ url }) => waitForLocalBrowserRunner(url),
+		waitForReady: ({ url }) => waitForBrowserRunRunnerReady(url, options),
 	},
 	contextStrategy: 'reuse-default-on-failure',
 })
@@ -170,7 +170,7 @@ Supported today:
 Known proof constraints:
 
 - Only Chromium can use `connectOverCDPOptions`.
-- The workspace currently depends on the local Vitest fork that contains `connectOverCDPOptions`, `runner.resolveUrl`, `runner.waitForReady`, and `contextStrategy`.
+- The workspace currently depends on the local Vitest fork that contains `connectOverCDPOptions`, `runner.resolveUrl`, `runner.waitForReady`, `contextStrategy`, Browser RPC WebSocket markers, and third-party Vite environment handling.
 - The workspace currently depends on the local Workers SDK fork that contains `@cloudflare/vite-plugin` `tunnel.env` and `tunnel.onReady`.
 - The Browser Run connector does not implement custom Browser Run launch staggering, per-session browser fan-out, or connection retry classification in this Playwright-backed proof shape.
 
@@ -275,7 +275,7 @@ test: {
 
 The Cloudflare Vite plugin starts a quick tunnel for the Vitest browser API server and writes the primary public tunnel URL to `VITEST_BROWSER_PUBLIC_ORIGIN` after the tunnel is ready. `browserRunCdp()` reads that env var when the Playwright provider resolves the runner URL for navigation.
 
-The config includes two compatibility shims for this pending-upstream combination. One clears Vitest's injected `resolve.external` setting for the Cloudflare tunnel Vite environment. The other leaves Vitest's `/__vitest_browser_api__` WebSocket upgrade with Vitest because the Cloudflare Vite plugin's Worker WebSocket forwarding handles non-HMR upgrades and would otherwise close Vitest's browser RPC socket.
+No local compatibility plugin is required in this config. The linked Vitest fork marks Browser Mode RPC WebSockets and avoids mutating Cloudflare's Worker Vite environment, so the Cloudflare Vite plugin can own tunnel startup without app-level shims.
 
 Cloudflare quick tunnels intentionally create random `*.trycloudflare.com` hostnames. They are suitable for short-lived CI and demos; set `VITEST_BROWSER_PUBLIC_ORIGIN` yourself if you want to provide a different public runner origin or skip automatic tunnel startup.
 
@@ -365,6 +365,8 @@ The Vitest fork adds:
 - `connectOverCDPOptions` for Chromium CDP endpoints.
 - `runner.resolveUrl` and `runner.waitForReady` hooks for remote browsers that cannot reach the local Vitest runner URL directly.
 - `contextStrategy: 'reuse-default-on-failure'` for CDP services that expose a default context but reject `browser.newContext()`.
+- Browser RPC WebSocket markers so Vite plugins can distinguish Vitest's Browser Mode control socket from application WebSockets.
+- Third-party Vite environment handling so Vitest does not inject `resolve.external` into Cloudflare Worker environments it does not own.
 
 The Browser Run package then remains a small connector that converts Cloudflare account/token/options into CDP connect options and runner URL behavior. The earlier custom `browserCdp()` provider and mirrored command modules were removed from this proof branch to avoid drift from Vitest's Playwright provider.
 
