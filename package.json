@@ -11,7 +11,8 @@
 		"dev": "vite dev",
 		"preview": "pnpm build && vite preview",
 		"start": "vite dev",
-		"test": "pnpm --filter @vitest-browser-run/browser-run-provider test && vitest run --config vitest.config.ts",
+		"test": "pnpm --filter @vitest-browser-run/browser-run-provider test",
+		"test:worker": "vitest run --config vitest.config.ts",
 		"test:browser-run": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts",
 		"test:browser-run:visual": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts",
 		"test:browser-run:visual:update": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts --update",
@@ -24,11 +25,12 @@
 		"@cloudflare/vite-plugin": "1.42.4",
 		"@cloudflare/vitest-pool-workers": "0.17.0",
 		"@types/node": "26.1.0",
-		"@vitest/browser": "4.1.9",
-		"playwright-core": "1.61.1",
+		"@vitest/browser": "link:../vitest/packages/browser",
+		"@vitest/browser-playwright": "link:../vitest/packages/browser-playwright",
+		"playwright": "npm:playwright-core@1.61.1",
 		"typescript": "5.9.3",
 		"vite": "8.1.2",
-		"vitest": "4.1.9",
+		"vitest": "link:../vitest/packages/vitest",
 		"wrangler": "4.106.0"
 	}
 }

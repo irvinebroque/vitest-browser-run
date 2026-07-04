@@ -1,11 +1,13 @@
 import type { BrowserProviderOption } from 'vitest/node';
 
-import { browserCdp, type BrowserCdpConnectOptions, type BrowserCdpOptions } from './browser-cdp.js';
+import { playwright, type PlaywrightProviderOptions } from '@vitest/browser-playwright';
+
 import { readBoolean, readNumber } from './env.js';
 import { resolveBrowserRunnerUrl, waitForLocalBrowserRunner } from './runner-origin.js';
 
-const cdpConnectAttempts = 3;
 const browserRunPublicOriginEnv = 'VITEST_BROWSER_PUBLIC_ORIGIN';
+
+export type BrowserRunCdpConnectOptions = NonNullable<PlaywrightProviderOptions['connectOverCDPOptions']>;
 
 export interface BrowserRunCdpOptions {
 	accountId?: string;
@@ -14,34 +16,24 @@ export interface BrowserRunCdpOptions {
 	publicOrigin?: string;
 	keepAliveMs?: number;
 	recording?: boolean;
-	browserPerSession?: boolean;
-	launchDelayMs?: number;
-	logSessions?: boolean;
 }
 
 export interface ResolvedBrowserRunCdpOptions extends Required<BrowserRunCdpOptions> {}
 
 export function browserRunCdp(options: BrowserRunCdpOptions = {}): BrowserProviderOption {
-	return browserCdp({
-		name: 'browser-run-cdp',
+	const resolvedOptions = resolveBrowserRunCdpOptions(options);
+
+	return playwright({
+		connectOverCDPOptions: createBrowserRunCdpConnection(resolvedOptions),
 		runner: {
-			resolveUrl: ({ url }) => resolveBrowserRunRunnerUrl(url, resolveBrowserRunCdpOptions(options).publicOrigin),
+			resolveUrl: ({ url }) => resolveBrowserRunRunnerUrl(url, resolvedOptions.publicOrigin),
 			waitForReady: ({ url }) => waitForLocalBrowserRunner(url),
 		},
-		browserPerSession: options.browserPerSession ?? readBoolean(process.env.CF_BROWSER_RUN_BROWSER_PER_SESSION, true, 'CF_BROWSER_RUN_BROWSER_PER_SESSION'),
-		launchDelayMs: options.launchDelayMs ?? readNumber(process.env.CF_BROWSER_RUN_LAUNCH_DELAY_MS, 1100, 'CF_BROWSER_RUN_LAUNCH_DELAY_MS'),
-		logSessions: options.logSessions ?? readBoolean(process.env.CF_BROWSER_RUN_LOG_SESSIONS, true, 'CF_BROWSER_RUN_LOG_SESSIONS'),
 		contextStrategy: 'reuse-default-on-failure',
-		connectRetry: {
-			attempts: cdpConnectAttempts,
-			shouldRetry: isTransientBrowserRunCdpConnectError,
-			delayMs: (attempt) => Math.min(attempt * 2000, 5000),
-		},
-		connect: () => createBrowserRunCdpConnection(resolveBrowserRunCdpOptions(options)),
-	} satisfies BrowserCdpOptions);
+	} satisfies PlaywrightProviderOptions);
 }
 
-export function createBrowserRunCdpConnection(options: ResolvedBrowserRunCdpOptions): BrowserCdpConnectOptions {
+export function createBrowserRunCdpConnection(options: ResolvedBrowserRunCdpOptions): BrowserRunCdpConnectOptions {
 	return {
 		wsEndpoint: getBrowserRunWsEndpoint(options),
 		headers: { Authorization: `Bearer ${getBrowserRunApiToken(options)}` },
@@ -56,9 +48,6 @@ export function resolveBrowserRunCdpOptions(options: BrowserRunCdpOptions): Reso
 		publicOrigin: options.publicOrigin ?? process.env.VITEST_BROWSER_PUBLIC_ORIGIN ?? '',
 		keepAliveMs: options.keepAliveMs ?? readNumber(process.env.CF_BROWSER_RUN_KEEP_ALIVE_MS, 600000, 'CF_BROWSER_RUN_KEEP_ALIVE_MS'),
 		recording: options.recording ?? readBoolean(process.env.CF_BROWSER_RUN_RECORDING, false, 'CF_BROWSER_RUN_RECORDING'),
-		browserPerSession: options.browserPerSession ?? readBoolean(process.env.CF_BROWSER_RUN_BROWSER_PER_SESSION, true, 'CF_BROWSER_RUN_BROWSER_PER_SESSION'),
-		launchDelayMs: options.launchDelayMs ?? readNumber(process.env.CF_BROWSER_RUN_LAUNCH_DELAY_MS, 1100, 'CF_BROWSER_RUN_LAUNCH_DELAY_MS'),
-		logSessions: options.logSessions ?? readBoolean(process.env.CF_BROWSER_RUN_LOG_SESSIONS, true, 'CF_BROWSER_RUN_LOG_SESSIONS'),
 	};
 }
 
@@ -97,16 +86,4 @@ export function getBrowserRunApiToken(options: Pick<ResolvedBrowserRunCdpOptions
 	}
 
 	return options.apiToken;
-}
-
-export function isTransientBrowserRunCdpConnectError(error: unknown): boolean {
-	const message = String(error);
-	return (
-		message.includes('410 Gone')
-		|| message.includes('Browser not running')
-		|| message.includes('state: unhealthy')
-		|| message.includes('WebSocket was closed before the connection was established')
-		|| message.includes('ECONNRESET')
-		|| message.includes('ETIMEDOUT')
-	);
 }

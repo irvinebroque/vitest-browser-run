@@ -17,8 +17,6 @@ jobs:
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       CF_BROWSER_RUN_CONCURRENCY: '4'
-      CF_BROWSER_RUN_LAUNCH_DELAY_MS: '1100'
-      CF_BROWSER_RUN_LOG_SESSIONS: 'true'
       CF_BROWSER_RUN_RECORDING: 'true'
     steps:
       - uses: actions/checkout@v4

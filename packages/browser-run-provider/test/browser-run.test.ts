@@ -67,9 +67,6 @@ describe('Browser Run CDP connector', () => {
 			publicOrigin: 'https://runner.example.com',
 			keepAliveMs: 600000,
 			recording: false,
-			browserPerSession: true,
-			launchDelayMs: 1100,
-			logSessions: false,
 		})).toEqual({
 			wsEndpoint: 'wss://example.com/devtools/browser',
 			headers: { Authorization: 'Bearer token' },

@@ -12,7 +12,7 @@ describe('Browser Run Vitest browser test', () => {
 			result: { value: string };
 		};
 
-		expect(server.provider).toBe('browser-run-cdp');
+		expect(server.provider).toBe('playwright');
 		expect(userAgentResult.result.value).toContain('Chrome');
 
 		document.body.innerHTML = `

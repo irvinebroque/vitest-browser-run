@@ -5,8 +5,11 @@ This repo is a proof-of-concept for running Vitest Browser Mode tests on Cloudfl
 The demo focuses on visual regression testing:
 
 - Vitest owns test discovery, test execution, `expect.element(...).toMatchScreenshot()`, baseline updates, and screenshot comparison.
+- `@vitest/browser-playwright` owns the Vitest Browser Mode provider lifecycle, commands, tracing, mocking, and Playwright integration.
 - Cloudflare Browser Run supplies hosted Chromium sessions over a standard CDP WebSocket.
-- The custom provider package in `packages/browser-run-provider` is the glue between those two systems.
+- The package in `packages/browser-run-provider` is now only the Cloudflare Browser Run connector around that Playwright provider.
+
+This proof is wired to `irvinebroque/vitest#1`, which adds a Chromium `connectOverCDPOptions` path plus runner URL hooks to `@vitest/browser-playwright`. Until that Vitest change is merged and published, this repo intentionally uses local `link:` dependencies to `../vitest`.
 
 The Worker application itself does not call Browser Run. Browser Run is only used as the browser infrastructure for Vitest Browser Mode.
 
@@ -17,14 +20,18 @@ sequenceDiagram
   participant CI as Local machine / GitHub Actions
   participant Vitest as Vitest Browser Mode
   participant Tunnel as Provider tunnel plugin
-  participant Provider as browserCdp provider
+  participant Connector as browserRunCdp connector
+  participant Provider as @vitest/browser-playwright
   participant BR as Cloudflare Browser Run
   participant Chrome as Hosted Chromium
 
   CI->>Tunnel: browserRunTunnel exposes http://127.0.0.1:63315
   CI->>Vitest: vitest run --config vitest.browser-run.config.ts
+  Vitest->>Connector: browserRunCdp()
+  Connector->>Provider: playwright({ connectOverCDPOptions, runner })
   Vitest->>Provider: openPage(sessionId, local runner URL)
-  Provider->>Provider: rewrite localhost URL to tunnel URL
+  Provider->>Connector: waitForReady(local URL) and resolveUrl(local URL)
+  Connector-->>Provider: public tunnel URL
   Provider->>BR: chromium.connectOverCDP(wsEndpoint, headers)
   BR->>Chrome: create hosted Chromium session
   Provider->>Chrome: page.goto(public Vitest runner URL)
@@ -37,18 +44,16 @@ sequenceDiagram
   Vitest->>CI: compare/update baselines and write artifacts
 ```
 
-The key detail is that the browser is remote but the Vitest browser runner is local. The remote browser cannot open `localhost`, so the runner is exposed through a short-lived tunnel and the provider rewrites Vitest's local runner URL to that public origin.
+The key detail is that the browser is remote but the Vitest browser runner is local. The remote browser cannot open `localhost`, so the runner is exposed through a short-lived tunnel and the connector uses the Playwright provider's runner hook to rewrite Vitest's local runner URL to that public origin.
 
 ## Main Files
 
 - `package.json` is the private example Worker package and workspace root.
 - `pnpm-workspace.yaml` declares local packages under `packages/*`.
-- `packages/browser-run-provider` is the reusable Vitest browser provider package consumed by the example via `workspace:*`.
+- `packages/browser-run-provider` is the reusable Browser Run connector package consumed by the example via `workspace:*`.
 - `vitest.browser-run.config.ts` configures Vitest Browser Mode for Browser Run.
-- `packages/browser-run-provider/src/browser-cdp.ts` implements the generic Vitest Browser Mode provider for Chromium CDP endpoints.
-- `packages/browser-run-provider/src/browser-run.ts` adapts Cloudflare Browser Run credentials/options into `browserCdp()` connect and runner callbacks.
+- `packages/browser-run-provider/src/browser-run.ts` adapts Cloudflare Browser Run credentials/options into `@vitest/browser-playwright` `connectOverCDPOptions` and runner callbacks.
 - `packages/browser-run-provider/src/runner-origin.ts` provides reusable local-to-public runner URL helpers.
-- `packages/browser-run-provider/src/commands/**` registers Vitest screenshot, viewport, standard user-event commands, and explicit unsupported tracing commands.
 - `packages/browser-run-provider/src/vitest-plugin.ts` starts the quick tunnel from the Vitest config when `VITEST_BROWSER_PUBLIC_ORIGIN` is not already set.
 - `packages/browser-run-provider/src/tunnel.ts` preserves the `expose(port)` / `close()` surface from `dmmulroy/tunnels-sdk` while the upstream package is not directly consumable from npm.
 - `.github/workflows/browser-run-visual.yml` runs the visual suite in CI without installing local Playwright browsers.
@@ -57,44 +62,15 @@ The key detail is that the browser is remote but the Vitest browser runner is lo
 
 ## Provider Shape
 
-`@vitest-browser-run/browser-run-provider` intentionally separates the generic Vitest/CDP provider from the Cloudflare Browser Run connector.
+`@vitest-browser-run/browser-run-provider` is intentionally small. It does not implement a generic Vitest Browser Mode provider anymore.
 
 There are three layers:
 
-- `browserCdp()` is the generic Vitest/CDP provider.
-- `browserRunCdp()` is the Cloudflare Browser Run connector.
+- `@vitest/browser-playwright` is the upstream provider layer.
+- `browserRunCdp()` is the Cloudflare Browser Run connector around that provider.
 - `browserRunTunnel()` is an optional tunnel helper for local Vitest runner access.
 
-`browserCdp()` is the upstream-shaped generic layer. It knows about Vitest sessions, Playwright's CDP client, command registration, and lifecycle. It does not know about Browser Run, env vars, public tunnels, or product URL construction.
-
-```ts
-browserCdp({
-	connect: async ({ sessionId, parallel }) => ({
-		wsEndpoint: 'wss://example.com/devtools/browser',
-		headers: { Authorization: 'Bearer ...' },
-		timeout: 30_000,
-	}),
-	runner: {
-		resolveUrl: async ({ url, sessionId, parallel }) => url,
-		waitForReady: async ({ url }) => {},
-	},
-})
-```
-
-If `runner.resolveUrl` is omitted, the provider navigates to Vitest's provided browser runner URL unchanged. If `runner.waitForReady` is omitted, no readiness probe runs.
-
-That layer satisfies Vitest's provider contract using Playwright's CDP client and a `connect()` callback:
-
-- `openPage(sessionId, url, options)` creates or reuses a browser for the Vitest session.
-- `close()` closes pages, contexts, and CDP browser connections.
-- `getCDPSession(sessionId)` returns the CDP bridge Vitest expects.
-- `getCommandsContext(sessionId)` returns the Playwright `page`, `context`, `frame`, and `iframe` handles used by provider commands.
-- `__vitest_takeScreenshot` is registered so Vitest's native screenshot matcher can ask Playwright for a screenshot.
-- `__vitest_viewport` is registered so `page.viewport(width, height)` works in the tests.
-- Standard Vitest user-event commands such as click, hover, fill, type, select, upload, wheel, and drag-and-drop are registered against Playwright locator/input APIs.
-- `chromiumCdp()` remains as a compatibility alias with the older default provider name.
-
-`browserRunCdp()` is the Cloudflare-specific connector wrapper:
+`browserRunCdp()` builds the Browser Run CDP endpoint and authorization header, configures the public runner URL hooks, and delegates to the Playwright provider:
 
 ```ts
 browserRunCdp({
@@ -102,10 +78,27 @@ browserRunCdp({
 	apiToken,
 	keepAliveMs: 600000,
 	recording: true,
+	publicOrigin: 'https://runner.example.com',
 })
 ```
 
-It builds the Browser Run CDP endpoint and authorization header, configures Browser Run retry/session defaults, rewrites the Vitest runner URL through the configured public origin, waits for the local runner before navigation, and then delegates to `browserCdp()`:
+Internally that becomes:
+
+```ts
+playwright({
+	connectOverCDPOptions: {
+		wsEndpoint,
+		headers: { Authorization: `Bearer ${apiToken}` },
+	},
+	runner: {
+		resolveUrl: ({ url }) => resolveBrowserRunRunnerUrl(url, publicOrigin),
+		waitForReady: ({ url }) => waitForLocalBrowserRunner(url),
+	},
+	contextStrategy: 'reuse-default-on-failure',
+})
+```
+
+The default Browser Run CDP URL is:
 
 ```txt
 wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=600000
@@ -114,9 +107,9 @@ Authorization: Bearer <API_TOKEN>
 
 If `CF_BROWSER_RUN_RECORDING=true`, the wrapper appends `recording=true` to the CDP URL. Browser Run recordings are available after the browser session closes.
 
-Browser Run-specific behavior is intentionally outside the generic provider: env var resolution, missing `VITEST_BROWSER_PUBLIC_ORIGIN` errors, endpoint construction, auth headers, connection retry classification, context fallback behavior, and Browser Run defaults live in `browser-run.ts`. Reusable public runner origin rewriting lives in `runner-origin.ts`, and GitHub summary output lives in `ci-summary.ts`.
+Browser Run-specific behavior is intentionally limited to env var resolution, missing `VITEST_BROWSER_PUBLIC_ORIGIN` errors, endpoint construction, auth headers, keep-alive/recording defaults, and public runner URL rewriting. Generic Vitest provider behavior stays in `@vitest/browser-playwright`.
 
-`browserRunCdp()` sets `contextStrategy: 'reuse-default-on-failure'` because some CDP endpoints expose a default browser context but do not allow Playwright to create a fresh context. Generic `browserCdp()` defaults to requiring a new context unless a connector explicitly opts into this fallback.
+`browserRunCdp()` sets `contextStrategy: 'reuse-default-on-failure'` because some CDP endpoints expose a default browser context but do not allow Playwright to create a fresh context. The provider name reported to Vitest is still `playwright` because the upstream provider owns the provider implementation.
 
 Because these are normal Browser Run CDP sessions, active sessions can also be inspected with Browser Run Live View from the Cloudflare dashboard. This repo does not fetch or print Live View URLs programmatically.
 
@@ -126,7 +119,7 @@ There is no `browser` binding in `wrangler.jsonc` because this demo does not lau
 
 Browser Run exposes a standard Chromium CDP WebSocket. Vitest Browser Mode, however, needs more than a WebSocket URL.
 
-The provider has to:
+The provider layer has to:
 
 - Connect Playwright with `chromium.connectOverCDP()`. Vitest's Playwright provider `connectOptions` path uses Playwright protocol, not raw CDP.
 - Open the Vitest browser runner page for each Vitest browser session.
@@ -135,44 +128,65 @@ The provider has to:
 - Register Vitest browser commands used by the tests and matchers.
 - Return screenshot buffers and paths to Vitest so Vitest still owns baseline matching.
 
-That is why this is implemented at the provider layer rather than inside the Worker app or inside `@vitest/browser` itself.
+The local Vitest fork proves those provider-layer capabilities belong in `@vitest/browser-playwright`. Browser Run only supplies `connectOverCDPOptions` and runner URL behavior.
 
 ## Why Not `@cloudflare/playwright`
 
 Cloudflare's Browser Run Playwright package is designed for browser automation from Cloudflare Workers through a Browser Run binding. This repo runs in Node.js as a Vitest Browser Mode provider. The relevant Browser Run API for this path is the external CDP WebSocket endpoint, which Cloudflare documents as usable from a local machine, cloud environment, or Workers by CDP-compatible clients such as Playwright and Puppeteer.
 
-That is why this package depends on `playwright-core` and calls `chromium.connectOverCDP()` directly instead of adding a Worker `browser` binding or launching through `@cloudflare/playwright`.
+That is why this package configures `@vitest/browser-playwright` with Browser Run's external CDP WebSocket instead of adding a Worker `browser` binding or launching through `@cloudflare/playwright`.
 
 ## Supported Surface
 
 Supported today:
 
-- Chromium CDP sessions through Playwright `connectOverCDP()`.
-- Vitest Browser Mode page/context/session lifecycle.
-- Screenshot and viewport commands.
-- Standard user-event commands: click, double-click, triple-click, hover, wheel, type, keyboard, tab, clear, fill, select, upload, and drag-and-drop.
-- Browser Run endpoint construction, auth headers, keep-alive, recording, launch staggering, and transient connection retries.
+- Chromium CDP sessions through `@vitest/browser-playwright`'s `connectOverCDPOptions` path.
+- Vitest Browser Mode page/context/session lifecycle from the Playwright provider.
+- Screenshot, viewport, user-event, tracing, and browser module mocking behavior from the Playwright provider.
+- Browser Run endpoint construction, auth headers, keep-alive, and recording options.
 - Local runner URL rewriting through `browserRunCdp()` and optional quick tunnel startup through `browserRunTunnel()`.
 
-Known parity gaps with `@vitest/browser-playwright`:
+Known proof constraints:
 
-- Playwright trace commands are registered only to produce clear unsupported-provider errors. Disable `browser.trace` or use `@vitest/browser-playwright` when trace artifacts are required.
-- Browser module mocking is not implemented in this provider. Use `@vitest/browser-playwright` for browser tests that depend on provider-backed module mocking.
-- Only Chromium CDP is supported.
+- Only Chromium can use `connectOverCDPOptions`.
+- The workspace currently depends on the local Vitest fork that contains `connectOverCDPOptions`, `runner.resolveUrl`, `runner.waitForReady`, and `contextStrategy`.
+- The Browser Run connector does not implement custom Browser Run launch staggering, per-session browser fan-out, or connection retry classification in this Playwright-backed proof shape.
 
 ## Running Locally
 
-Install dependencies:
+This branch needs a sibling checkout of the Vitest fork before `pnpm install` will work in this repo:
+
+```sh
+cd ..
+git clone https://github.com/irvinebroque/vitest.git vitest
+cd vitest
+git switch feat/playwright-cdp-options
+pnpm install
+pnpm build
+cd ../vitest-browser-run
+```
+
+Then install this repo's dependencies:
 
 ```sh
 pnpm install
 ```
 
-Run the normal Worker tests:
+The important path is `../vitest` relative to this repository. The linked packages are `../vitest/packages/vitest`, `../vitest/packages/browser`, and `../vitest/packages/browser-playwright`.
+
+Run the Browser Run connector tests:
 
 ```sh
 pnpm test
 ```
+
+Run the normal Worker tests:
+
+```sh
+pnpm test:worker
+```
+
+At the time of this proof, `@cloudflare/vitest-pool-workers` supports Vitest `^4.1.0`, so `pnpm test:worker` is not expected to pass while this workspace is linked to the Vitest 5 beta fork.
 
 Set Browser Run credentials in the environment or in `.env`:
 
@@ -237,7 +251,7 @@ Vitest handles:
 - missing-baseline failures
 - actual/diff/reference artifacts under `.vitest-attachments` when comparisons fail
 
-The provider's screenshot command does not implement image diffing. It only takes the screenshot through Playwright and returns the buffer to Vitest.
+The Playwright provider's screenshot command does not implement image diffing. It only takes the screenshot through Playwright and returns the buffer to Vitest.
 
 Committed baselines are platform-specific because Vitest includes the browser and host platform in the default path, for example:
 
@@ -249,9 +263,9 @@ test/browser/__screenshots__/visual-dashboard.browser.test.ts/dashboard/desktop-
 
 `vitest.browser-run.config.ts` enables browser file parallelism and sets `maxWorkers` from `CF_BROWSER_RUN_CONCURRENCY` or `VITEST_MAX_WORKERS`. The default is `4`.
 
-The provider reports `supportsParallelism = true`. With the default `CF_BROWSER_RUN_BROWSER_PER_SESSION=true`, each parallel Vitest browser session gets its own Browser Run CDP browser connection. That is the hosted-browser fan-out this repo is meant to demonstrate.
+The Playwright provider reports `supportsParallelism = true`. In this proof shape, `@vitest/browser-playwright` owns connection, context, page, and command lifecycle; `browserRunCdp()` only configures the Browser Run CDP endpoint and runner URL hooks.
 
-The provider also staggers CDP connection attempts with `CF_BROWSER_RUN_LAUNCH_DELAY_MS`, defaulting to `1100`, retries transient Browser Run startup failures like `410 Gone` / `state: unhealthy`, and retries transient tunnel navigation failures like `ERR_CONNECTION_RESET` and `ERR_CONNECTION_REFUSED`.
+`browserRunCdp()` sets `contextStrategy: 'reuse-default-on-failure'` so the Playwright provider can fall back to an existing default context if the CDP endpoint does not allow creating a new context.
 
 ## Configuration
 
@@ -271,9 +285,6 @@ Optional:
 - `CF_BROWSER_RUN_KEEP_ALIVE_MS` controls the Browser Run `keep_alive` query parameter. The default is `600000`.
 - `CF_BROWSER_RUN_RECORDING=true` appends `recording=true` so Browser Run records the session.
 - `CF_BROWSER_RUN_CONCURRENCY` controls Vitest worker count for Browser Run visual tests. The default is `4`.
-- `CF_BROWSER_RUN_BROWSER_PER_SESSION=false` allows non-parallel runs to reuse a single CDP browser connection.
-- `CF_BROWSER_RUN_LAUNCH_DELAY_MS` staggers CDP browser connection attempts. The default is `1100`.
-- `CF_BROWSER_RUN_LOG_SESSIONS=false` disables provider session logs.
 
 The base Vitest config intentionally keeps this simple:
 
@@ -286,6 +297,8 @@ provider: browserRunCdp()
 ## CI
 
 `.github/workflows/browser-run-visual.yml` runs on pull requests, pushes to `main`, and manual dispatches.
+
+The local-link proof branch needs the Vitest fork available before that workflow can run unchanged in CI. Once the Playwright CDP changes are published or vendored in CI, the workflow shape is:
 
 The workflow:
 
@@ -302,18 +315,14 @@ The workflow expects these GitHub secrets:
 
 ## Upstreaming Notes
 
-The generic integration point is not Cloudflare-specific. This repo now models two possible upstream paths.
+This repo now proves the upstream `@vitest/browser-playwright` path instead of carrying a separate generic CDP provider.
 
-Option A: publish or upstream a reusable `@vitest/browser-cdp` provider:
+The Vitest fork adds:
 
-- `browserCdp()` accepts a `connect()` callback that returns `{ wsEndpoint, headers, timeout }`.
-- `browserCdp()` accepts a `runner` callback object for runner URL resolution and readiness.
-- The provider owns Vitest Browser Mode session/page/context lifecycle and CDP session bridging.
-- Connectors such as `browserRunCdp()` own product-specific endpoint construction, auth, defaults, and retry classification.
-- Support code such as public runner origin rewriting, tunnel startup, and CI summaries stays outside the generic provider.
+- `connectOverCDPOptions` for Chromium CDP endpoints.
+- `runner.resolveUrl` and `runner.waitForReady` hooks for remote browsers that cannot reach the local Vitest runner URL directly.
+- `contextStrategy: 'reuse-default-on-failure'` for CDP services that expose a default context but reject `browser.newContext()`.
 
-Option B: add a `connectOverCDPOptions` path to `@vitest/browser-playwright`:
+The Browser Run package then remains a small connector that converts Cloudflare account/token/options into CDP connect options and runner URL behavior. The earlier custom `browserCdp()` provider and mirrored command modules were removed from this proof branch to avoid drift from Vitest's Playwright provider.
 
-- This may be cleaner upstream because the implementation is still Playwright-backed.
-- Existing Playwright provider command, tracing, mocking, and lifecycle modules could be reused directly instead of mirrored here.
-- The important boundary is the same either way: Browser Run should remain a small connector that converts Cloudflare account/token/options into CDP connect options and runner URL behavior.
+The tunnel helper is still local to this package. A cleaner upstream shape would be for `@cloudflare/vite-plugin` to expose the tunnel URL programmatically so `browserRunTunnel()` and the vendored tunnel adapter can be removed.
