@@ -29,6 +29,8 @@ const modeConfigs = {
 
 const modes = process.argv.slice(2).length ? process.argv.slice(2) : ['local-serial', 'local-parallel', 'browser-run'];
 const failures = [];
+const scenarioGenerationEnv = getScenarioGenerationEnv();
+let shouldRestoreScenarios = false;
 
 for (const mode of modes) {
 	if (!modeConfigs[mode]) {
@@ -36,55 +38,78 @@ for (const mode of modes) {
 	}
 }
 
-for (const mode of modes) {
-	const config = modeConfigs[mode];
-	await rm(join(artifactRoot, mode), { force: true, recursive: true });
-
-	if (config.prepare) {
-		await run('pnpm', ['build:provider'], { mode });
-	}
-
-	const startedAt = Date.now();
-	const start = performance.now();
-	let status = 'passed';
-	let errorMessage = '';
-
-	try {
-		await run('pnpm', ['exec', 'vitest', 'run', '--config', config.config], {
+try {
+	if (scenarioGenerationEnv) {
+		shouldRestoreScenarios = true;
+		await run('node', ['scripts/generate-scenarios.mjs'], {
 			env: {
 				...process.env,
-				VITEST_BENCHMARK_MODE: config.mode,
+				...scenarioGenerationEnv,
 			},
-			mode,
+			mode: 'scenarios',
 		});
 	}
-	catch (error) {
-		status = 'failed';
-		errorMessage = error instanceof Error ? error.message : String(error);
-		failures.push(`${mode}: ${errorMessage}`);
+
+	for (const mode of modes) {
+		const config = modeConfigs[mode];
+		await rm(join(artifactRoot, mode), { force: true, recursive: true });
+
+		if (config.prepare) {
+			await run('pnpm', ['build:provider'], { mode });
+		}
+
+		const startedAt = Date.now();
+		const start = performance.now();
+		let status = 'passed';
+		let errorMessage = '';
+
+		try {
+			await run('pnpm', ['exec', 'vitest', 'run', '--config', config.config], {
+				env: {
+					...process.env,
+					VITEST_BENCHMARK_MODE: config.mode,
+				},
+				mode,
+			});
+		}
+		catch (error) {
+			status = 'failed';
+			errorMessage = error instanceof Error ? error.message : String(error);
+			failures.push(`${mode}: ${errorMessage}`);
+		}
+
+		await mkdir(join(artifactRoot, mode), { recursive: true });
+		await writeFile(join(artifactRoot, mode, 'metadata.json'), `${JSON.stringify({
+			endedAt: Date.now(),
+			errorMessage,
+			mode,
+			scenarioCount: process.env.BENCHMARK_SCENARIO_COUNT ?? '',
+			scenarioProfile: process.env.BENCHMARK_SCENARIO_PROFILE ?? process.env.BENCHMARK_PROFILE ?? 'default',
+			startedAt,
+			status,
+			wallTimeMs: Math.round(performance.now() - start),
+		}, null, 2)}\n`);
 	}
 
-	await mkdir(join(artifactRoot, mode), { recursive: true });
-	await writeFile(join(artifactRoot, mode, 'metadata.json'), `${JSON.stringify({
-		endedAt: Date.now(),
-		errorMessage,
-		mode,
-		startedAt,
-		status,
-		wallTimeMs: Math.round(performance.now() - start),
-	}, null, 2)}\n`);
+	const summaries = await writeBenchmarkReport(modes);
+
+	console.log('\nBenchmark summary');
+	console.log('Mode                  Scenarios  Browsers  Max concurrency  Max/browser  Wall time');
+	for (const summary of summaries) {
+		console.log(`${summary.mode.padEnd(22)}${String(summary.scenarioCount).padStart(9)}${formatCount(summary.browserSessionCount).padStart(10)}${String(summary.maxConcurrency).padStart(17)}${formatCount(summary.maxPerBrowserConcurrency).padStart(13)}${formatDuration(summary.wallTimeMs).padStart(11)}`);
+	}
+
+	if (failures.length) {
+		throw new Error(`Benchmark failed:\n${failures.join('\n')}`);
+	}
 }
-
-const summaries = await writeBenchmarkReport(modes);
-
-console.log('\nBenchmark summary');
-console.log('Mode                  Scenarios  Browsers  Max concurrency  Max/browser  Wall time');
-for (const summary of summaries) {
-	console.log(`${summary.mode.padEnd(22)}${String(summary.scenarioCount).padStart(9)}${formatCount(summary.browserSessionCount).padStart(10)}${String(summary.maxConcurrency).padStart(17)}${formatCount(summary.maxPerBrowserConcurrency).padStart(13)}${formatDuration(summary.wallTimeMs).padStart(11)}`);
-}
-
-if (failures.length) {
-	throw new Error(`Benchmark failed:\n${failures.join('\n')}`);
+finally {
+	if (shouldRestoreScenarios) {
+		await run('node', ['scripts/generate-scenarios.mjs'], {
+			env: defaultScenarioEnv(),
+			mode: 'restore-scenarios',
+		});
+	}
 }
 
 async function run(command, args, options) {
@@ -120,4 +145,27 @@ function formatDuration(ms) {
 
 function formatCount(value) {
 	return value ? String(value) : 'n/a';
+}
+
+function getScenarioGenerationEnv() {
+	const profile = process.env.BENCHMARK_SCENARIO_PROFILE ?? process.env.BENCHMARK_PROFILE;
+	const count = process.env.BENCHMARK_SCENARIO_COUNT;
+	if (!profile && !count) {
+		return undefined;
+	}
+
+	return {
+		...(profile ? { BENCHMARK_PROFILE: profile, BENCHMARK_SCENARIO_PROFILE: profile } : {}),
+		...(count ? { BENCHMARK_SCENARIO_COUNT: count } : {}),
+	};
+}
+
+function defaultScenarioEnv() {
+	const env = {
+		...process.env,
+		BENCHMARK_PROFILE: 'default',
+		BENCHMARK_SCENARIO_PROFILE: 'default',
+	};
+	delete env.BENCHMARK_SCENARIO_COUNT;
+	return env;
 }

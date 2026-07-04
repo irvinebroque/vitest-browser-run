@@ -111,6 +111,18 @@ Run the large-app Browser Run benchmark:
 pnpm bench:browser-run
 ```
 
+Run a larger temporary benchmark profile with four Browser Run sessions:
+
+```sh
+BENCHMARK_PROFILE=large \
+CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=4 \
+CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=4 \
+CLOUDFLARE_BROWSER_RUN_CONCURRENCY=16 \
+pnpm bench:browser-run
+```
+
+Supported profiles are `default` (96 scenarios), `full` (192), `large` (384), `xlarge` (768), and `stress` (1536). `BENCHMARK_SCENARIO_COUNT=<n>` overrides the profile size.
+
 Compare local serial, local parallel, and Browser Run parallel runs:
 
 ```sh

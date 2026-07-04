@@ -1,5 +1,15 @@
 import { scenarioManifest } from './scenario-manifest';
-import type { Scenario, ScenarioBootstrap, ScenarioLocale, ScenarioRole, ScenarioSurface } from './scenario-types';
+import type {
+	Scenario,
+	ScenarioBootstrap,
+	ScenarioDataSize,
+	ScenarioFeatureState,
+	ScenarioLocale,
+	ScenarioPlan,
+	ScenarioRegion,
+	ScenarioRole,
+	ScenarioSurface,
+} from './scenario-types';
 
 export { scenarioManifest } from './scenario-manifest';
 export type { Scenario, ScenarioBootstrap } from './scenario-types';
@@ -36,6 +46,31 @@ const navigationBySurface = {
 	'audit-log': ['Events', 'Exports', 'Retention'],
 } satisfies Record<ScenarioSurface, string[]>;
 
+const planLabels = {
+	free: 'Free plan',
+	pro: 'Pro plan',
+	enterprise: 'Enterprise plan',
+} satisfies Record<ScenarioPlan, string>;
+
+const regionLabels = {
+	na: 'North America',
+	eu: 'Europe',
+	apac: 'Asia Pacific',
+	mea: 'Middle East and Africa',
+} satisfies Record<ScenarioRegion, string>;
+
+const dataSizeLabels = {
+	empty: 'Empty account',
+	standard: 'Standard account',
+	large: 'Large account',
+} satisfies Record<ScenarioDataSize, string>;
+
+const featureStateLabels = {
+	control: 'Control cohort',
+	rollout: 'Rollout cohort',
+	beta: 'Beta cohort',
+} satisfies Record<ScenarioFeatureState, string>;
+
 export function getScenario(id: string): Scenario {
 	const scenario = scenarioManifest.find((item) => item.id === id);
 	if (!scenario) {
@@ -50,10 +85,14 @@ export function createScenarioBootstrap(id: string): ScenarioBootstrap {
 	return {
 		scenario,
 		title: `${surfaceLabels[scenario.surface]} for ${scenario.role}`,
-		formattedRevenue: formatScenarioCurrency(128_450 + scenario.id.length * 137, scenario.locale),
+		formattedRevenue: formatScenarioCurrency(scenarioRevenue(scenario), scenario.locale),
 		primaryAction: roleActions[scenario.role],
 		guardrail: roleGuardrails[scenario.role],
 		navigation: navigationBySurface[scenario.surface],
+		planLabel: planLabels[scenarioPlan(scenario)],
+		regionLabel: regionLabels[scenarioRegion(scenario)],
+		scaleLabel: dataSizeLabels[scenarioDataSize(scenario)],
+		stateLabel: featureStateLabels[scenarioFeatureState(scenario)],
 	};
 }
 
@@ -84,19 +123,45 @@ export function scenarioAppHtml(id: string): string {
     <p><strong>${escapeHtml(scenario.id)}</strong></p>
     <h1>${escapeHtml(bootstrap.title)}</h1>
     <p data-testid="scenario-guardrail">${escapeHtml(bootstrap.guardrail)}</p>
-    <section class="grid">
-      <article class="card"><h2>Primary action</h2><p data-testid="scenario-action">${escapeHtml(bootstrap.primaryAction)}</p></article>
-      <article class="card"><h2>Revenue</h2><p data-testid="scenario-revenue">${escapeHtml(bootstrap.formattedRevenue)}</p></article>
-      <article class="card"><h2>Flags</h2><ul data-testid="scenario-flags">${flags}</ul></article>
-    </section>
-    <nav aria-label="Scenario navigation"><ul>${navigation}</ul></nav>
-  </main>
+     <section class="grid">
+       <article class="card"><h2>Primary action</h2><p data-testid="scenario-action">${escapeHtml(bootstrap.primaryAction)}</p></article>
+       <article class="card"><h2>Revenue</h2><p data-testid="scenario-revenue">${escapeHtml(bootstrap.formattedRevenue)}</p></article>
+       <article class="card"><h2>Flags</h2><ul data-testid="scenario-flags">${flags}</ul></article>
+       <article class="card"><h2>Plan</h2><p>${escapeHtml(bootstrap.planLabel)}</p></article>
+       <article class="card"><h2>Region</h2><p>${escapeHtml(bootstrap.regionLabel)}</p></article>
+       <article class="card"><h2>Scale</h2><p>${escapeHtml(bootstrap.scaleLabel)}</p></article>
+     </section>
+     <p>${escapeHtml(bootstrap.stateLabel)}</p>
+     <nav aria-label="Scenario navigation"><ul>${navigation}</ul></nav>
+   </main>
 </body>
 </html>`;
 }
 
 export function scenarioRoute(id: string): string {
 	return `/app/scenario/${encodeURIComponent(id)}`;
+}
+
+export function scenarioRevenue(scenario: Scenario): number {
+	const planMultiplier = scenarioPlan(scenario) === 'enterprise' ? 8 : scenarioPlan(scenario) === 'pro' ? 3 : 1;
+	const dataMultiplier = scenarioDataSize(scenario) === 'large' ? 5 : scenarioDataSize(scenario) === 'standard' ? 2 : 1;
+	return 64_000 + scenario.id.length * 137 * planMultiplier * dataMultiplier;
+}
+
+export function scenarioPlan(scenario: Scenario): ScenarioPlan {
+	return scenario.plan ?? 'pro';
+}
+
+export function scenarioRegion(scenario: Scenario): ScenarioRegion {
+	return scenario.region ?? 'na';
+}
+
+export function scenarioDataSize(scenario: Scenario): ScenarioDataSize {
+	return scenario.dataSize ?? 'standard';
+}
+
+export function scenarioFeatureState(scenario: Scenario): ScenarioFeatureState {
+	return scenario.featureState ?? 'control';
 }
 
 export function formatScenarioCurrency(value: number, locale: ScenarioLocale): string {

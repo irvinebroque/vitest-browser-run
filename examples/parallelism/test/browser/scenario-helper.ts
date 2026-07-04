@@ -1,7 +1,18 @@
 import { expect } from 'vitest';
 import { server } from 'vitest/browser';
 
-import { createScenarioBootstrap, formatScenarioCurrency, getScenario, type Scenario, type ScenarioBootstrap } from '../../src/scenarios';
+import {
+	createScenarioBootstrap,
+	formatScenarioCurrency,
+	getScenario,
+	scenarioDataSize,
+	scenarioFeatureState,
+	scenarioPlan,
+	scenarioRegion,
+	scenarioRevenue,
+	type Scenario,
+	type ScenarioBootstrap,
+} from '../../src/scenarios';
 
 type ScenarioStatus = 'passed' | 'failed';
 
@@ -65,12 +76,16 @@ function renderReadyShell(bootstrap: ScenarioBootstrap): void {
 	document.body.dataset.viewport = scenario.viewport;
 	document.documentElement.lang = scenario.locale;
 	document.body.innerHTML = `
-		<main data-testid="scenario-root" data-state="ready" data-scenario="${scenario.id}" data-surface="${scenario.surface}" data-role="${scenario.role}">
+		<main data-testid="scenario-root" data-state="ready" data-scenario="${scenario.id}" data-surface="${scenario.surface}" data-role="${scenario.role}" data-plan="${scenarioPlan(scenario)}" data-region="${scenarioRegion(scenario)}" data-size="${scenarioDataSize(scenario)}" data-feature-state="${scenarioFeatureState(scenario)}">
 			<p data-testid="scenario-worker">Vitest worker ${readMetaEnv('VITEST_WORKER_ID', 'unknown')}</p>
 			<h1>${bootstrap.title}</h1>
 			<p data-testid="scenario-status">Ready</p>
 			<p data-testid="scenario-locale">${scenario.locale}</p>
 			<p data-testid="scenario-viewport">${scenario.viewport}</p>
+			<p data-testid="scenario-plan">${bootstrap.planLabel}</p>
+			<p data-testid="scenario-region">${bootstrap.regionLabel}</p>
+			<p data-testid="scenario-scale">${bootstrap.scaleLabel}</p>
+			<p data-testid="scenario-feature-state">${bootstrap.stateLabel}</p>
 			<p data-testid="scenario-action">${bootstrap.primaryAction}</p>
 			<p data-testid="scenario-guardrail">${bootstrap.guardrail}</p>
 			<p data-testid="scenario-revenue">${bootstrap.formattedRevenue}</p>
@@ -90,11 +105,19 @@ function assertScenarioState(scenario: Scenario, bootstrap: ScenarioBootstrap): 
 	expect(root.dataset.scenario).toBe(scenario.id);
 	expect(root.dataset.surface).toBe(scenario.surface);
 	expect(root.dataset.role).toBe(scenario.role);
+	expect(root.dataset.plan).toBe(scenarioPlan(scenario));
+	expect(root.dataset.region).toBe(scenarioRegion(scenario));
+	expect(root.dataset.size).toBe(scenarioDataSize(scenario));
+	expect(root.dataset.featureState).toBe(scenarioFeatureState(scenario));
 	expect(getByTestId('scenario-locale').textContent).toBe(scenario.locale);
 	expect(getByTestId('scenario-viewport').textContent).toBe(scenario.viewport);
+	expect(getByTestId('scenario-plan').textContent).toBe(bootstrap.planLabel);
+	expect(getByTestId('scenario-region').textContent).toBe(bootstrap.regionLabel);
+	expect(getByTestId('scenario-scale').textContent).toBe(bootstrap.scaleLabel);
+	expect(getByTestId('scenario-feature-state').textContent).toBe(bootstrap.stateLabel);
 	expect(getByTestId('scenario-action').textContent).toBe(bootstrap.primaryAction);
 	expect(getByTestId('scenario-guardrail').textContent).toBe(bootstrap.guardrail);
-	expect(getByTestId('scenario-revenue').textContent).toBe(formatScenarioCurrency(128_450 + scenario.id.length * 137, scenario.locale));
+	expect(getByTestId('scenario-revenue').textContent).toBe(formatScenarioCurrency(scenarioRevenue(scenario), scenario.locale));
 	for (const flag of scenario.flags) {
 		expect(getByTestId('scenario-flags').textContent).toContain(flag);
 	}
@@ -116,14 +139,18 @@ async function writeBenchmarkEvent(event: {
 		browserLeaseId: event.browserRunPool.browserLeaseId ?? null,
 		browserLeaseIndex: event.browserRunPool.browserLeaseIndex ?? null,
 		browserRunSessionId: event.browserRunPool.browserRunSessionId ?? null,
+		dataSize: event.scenario.dataSize ?? null,
 		durationMs: event.durationMs,
 		endTime: event.endTime,
 		errorMessage: event.errorMessage,
+		featureState: event.scenario.featureState ?? null,
 		flags: event.scenario.flags,
 		locale: event.scenario.locale,
 		maxBrowsers: event.browserRunPool.maxBrowsers ?? null,
 		mode: event.mode,
 		provider: server.provider,
+		region: event.scenario.region ?? null,
+		plan: event.scenario.plan ?? null,
 		role: event.scenario.role,
 		scenarioId: event.scenario.id,
 		sessionId: event.browserRunPool.sessionId ?? null,

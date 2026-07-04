@@ -93,7 +93,7 @@ Lower the worker count without changing test code:
 CLOUDFLARE_BROWSER_RUN_CONCURRENCY=2 pnpm test:browser-run:parallel
 ```
 
-Run the 96-scenario Browser Run benchmark:
+Run the default 96-scenario Browser Run benchmark:
 
 ```sh
 pnpm bench:browser-run
@@ -106,6 +106,28 @@ CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=2
 CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=4
 CLOUDFLARE_BROWSER_RUN_CONCURRENCY=8
 ```
+
+Run a larger app-shaped benchmark without committing the generated scenario files:
+
+```sh
+BENCHMARK_PROFILE=large pnpm bench:local:parallel
+BENCHMARK_PROFILE=large \
+CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=4 \
+CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=4 \
+CLOUDFLARE_BROWSER_RUN_CONCURRENCY=16 \
+CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS=1000 \
+pnpm bench:browser-run
+```
+
+Profiles:
+
+- `default`: 96 committed scenarios.
+- `full`: 192 generated scenarios.
+- `large`: 384 generated scenarios.
+- `xlarge`: 768 generated scenarios.
+- `stress`: 1536 generated scenarios.
+
+Use `BENCHMARK_SCENARIO_COUNT=<n>` to override the profile size. Generated benchmark files are restored to the default committed scenario set after `scripts/run-benchmark.mjs` exits.
 
 Run local comparison modes:
 
@@ -153,6 +175,8 @@ CLOUDFLARE_BROWSER_RUN_CONCURRENCY="8"
 CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="2"
 CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER="4"
 CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS="1000"
+BENCHMARK_PROFILE="large"
+BENCHMARK_SCENARIO_COUNT="384"
 LOCAL_BROWSER_CONCURRENCY="4"
 VITEST_SCENARIO_DELAY_MS="2200"
 ```
@@ -174,8 +198,16 @@ The Worker exposes deterministic routes used by the tests and for manual inspect
 
 ## Regenerating Scenarios
 
-The scenario files are committed so Vitest can discover them immediately. Regenerate them after changing the matrix in `scripts/generate-scenarios.mjs`:
+The default scenario files are committed so Vitest can discover them immediately. Regenerate the committed default set after changing the matrix in `scripts/generate-scenarios.mjs`:
 
 ```sh
 pnpm generate:scenarios
 ```
+
+Generate another profile for local inspection:
+
+```sh
+BENCHMARK_PROFILE=large pnpm generate:scenarios
+```
+
+Run `pnpm generate:scenarios` again before committing if you generated a non-default profile manually.
