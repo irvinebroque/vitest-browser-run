@@ -53,11 +53,12 @@ describe('Browser Run CDP connector', () => {
 			keepAliveMs: 600000,
 			recording: false,
 			wsEndpoint: '',
-		})).toThrow('Missing CF_ACCOUNT_ID');
+		})).toThrow('Missing CLOUDFLARE_ACCOUNT_ID');
 	});
 
 	it('requires an API token for Browser Run auth headers', () => {
-		expect(() => getBrowserRunApiToken({ apiToken: '' })).toThrow('Missing CF_API_TOKEN');
+		expect(() => getBrowserRunApiToken({ apiToken: '' })).toThrow('Missing CLOUDFLARE_API_TOKEN');
+		expect(() => getBrowserRunApiToken({ apiToken: '' })).toThrow('Browser Rendering - Edit permission');
 	});
 
 	it('creates connectOverCDP options with Browser Run auth headers', () => {
@@ -75,8 +76,8 @@ describe('Browser Run CDP connector', () => {
 	});
 
 	it('resolves Browser Run options from env', () => {
-		vi.stubEnv('CF_ACCOUNT_ID', 'env-account');
-		vi.stubEnv('CF_API_TOKEN', 'env-token');
+		vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', 'env-account');
+		vi.stubEnv('CLOUDFLARE_API_TOKEN', 'env-token');
 		vi.stubEnv('VITEST_BROWSER_PUBLIC_ORIGIN', 'https://runner.example.com');
 		vi.stubEnv('CF_BROWSER_RUN_KEEP_ALIVE_MS', '42');
 		vi.stubEnv('CF_BROWSER_RUN_RECORDING', 'true');
@@ -90,9 +91,46 @@ describe('Browser Run CDP connector', () => {
 		});
 	});
 
+	it('prefers canonical Cloudflare env vars over legacy aliases', () => {
+		vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', 'canonical-account');
+		vi.stubEnv('CLOUDFLARE_API_TOKEN', 'canonical-token');
+		vi.stubEnv('CF_ACCOUNT_ID', 'legacy-account');
+		vi.stubEnv('CF_API_TOKEN', 'legacy-token');
+
+		expect(resolveBrowserRunCdpOptions({})).toMatchObject({
+			accountId: 'canonical-account',
+			apiToken: 'canonical-token',
+		});
+	});
+
+	it('supports legacy Cloudflare credential env aliases', () => {
+		vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', undefined);
+		vi.stubEnv('CLOUDFLARE_API_TOKEN', undefined);
+		vi.stubEnv('CF_ACCOUNT_ID', 'legacy-account');
+		vi.stubEnv('CF_API_TOKEN', 'legacy-token');
+
+		expect(resolveBrowserRunCdpOptions({})).toMatchObject({
+			accountId: 'legacy-account',
+			apiToken: 'legacy-token',
+		});
+	});
+
+	it('prefers explicit credential options over env vars', () => {
+		vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', 'env-account');
+		vi.stubEnv('CLOUDFLARE_API_TOKEN', 'env-token');
+
+		expect(resolveBrowserRunCdpOptions({
+			accountId: 'option-account',
+			apiToken: 'option-token',
+		})).toMatchObject({
+			accountId: 'option-account',
+			apiToken: 'option-token',
+		});
+	});
+
 	it('uses Cloudflare tunnel URL as the fallback public origin', () => {
-		vi.stubEnv('CF_ACCOUNT_ID', 'env-account');
-		vi.stubEnv('CF_API_TOKEN', 'env-token');
+		vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', 'env-account');
+		vi.stubEnv('CLOUDFLARE_API_TOKEN', 'env-token');
 		vi.stubEnv('VITEST_BROWSER_PUBLIC_ORIGIN', undefined);
 		vi.stubEnv('CLOUDFLARE_TUNNEL_URL', 'https://tunnel.example.com');
 
@@ -116,8 +154,8 @@ describe('Browser Run CDP connector', () => {
 	});
 
 	it('reads public origin lazily for Vite plugin tunnel startup', async () => {
-		vi.stubEnv('CF_ACCOUNT_ID', 'env-account');
-		vi.stubEnv('CF_API_TOKEN', 'env-token');
+		vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', 'env-account');
+		vi.stubEnv('CLOUDFLARE_API_TOKEN', 'env-token');
 
 		const provider = browserRunCdp() as ReturnType<typeof browserRunCdp> & {
 			options: {
@@ -138,8 +176,8 @@ describe('Browser Run CDP connector', () => {
 	});
 
 	it('reads the Cloudflare tunnel URL lazily for Vite plugin auto tunnels', async () => {
-		vi.stubEnv('CF_ACCOUNT_ID', 'env-account');
-		vi.stubEnv('CF_API_TOKEN', 'env-token');
+		vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', 'env-account');
+		vi.stubEnv('CLOUDFLARE_API_TOKEN', 'env-token');
 		vi.stubEnv('VITEST_BROWSER_PUBLIC_ORIGIN', undefined);
 
 		const provider = browserRunCdp() as ReturnType<typeof browserRunCdp> & {

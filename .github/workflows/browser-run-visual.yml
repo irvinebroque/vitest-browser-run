@@ -14,8 +14,8 @@ jobs:
     name: Vitest visual suite on Browser Run
     runs-on: ubuntu-24.04
     env:
-      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CF_BROWSER_RUN_CONCURRENCY: '4'
       CF_BROWSER_RUN_RECORDING: 'true'
     steps:
@@ -35,8 +35,8 @@ jobs:
 
       - name: Confirm hosted browser path
         run: |
-          if [ -z "$CF_ACCOUNT_ID" ] || [ -z "$CF_API_TOKEN" ]; then
-            printf '%s\n' 'Missing CF_ACCOUNT_ID or CF_API_TOKEN secrets for Browser Run.'
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ] || [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            printf '%s\n' 'Missing CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN secrets for Browser Run.'
             exit 1
           fi
           printf '%s\n' 'Using Cloudflare Browser Run; this workflow intentionally does not install Playwright browsers.'

@@ -7,11 +7,17 @@ import { resolveBrowserRunnerUrl, waitForLocalBrowserRunner } from './runner-ori
 
 const browserRunPublicOriginEnv = 'VITEST_BROWSER_PUBLIC_ORIGIN';
 const cloudflareTunnelUrlEnv = 'CLOUDFLARE_TUNNEL_URL';
+const cloudflareAccountIdEnv = 'CLOUDFLARE_ACCOUNT_ID';
+const cloudflareApiTokenEnv = 'CLOUDFLARE_API_TOKEN';
+const legacyCloudflareAccountIdEnv = 'CF_ACCOUNT_ID';
+const legacyCloudflareApiTokenEnv = 'CF_API_TOKEN';
 
 export type BrowserRunCdpConnectOptions = NonNullable<PlaywrightProviderOptions['connectOverCDPOptions']>;
 
 export interface BrowserRunCdpOptions {
+	/** Cloudflare account ID. Prefer CLOUDFLARE_ACCOUNT_ID for normal use. */
 	accountId?: string;
+	/** Cloudflare API token with Browser Rendering - Edit permission. Prefer CLOUDFLARE_API_TOKEN for normal use. */
 	apiToken?: string;
 	wsEndpoint?: string;
 	publicOrigin?: string;
@@ -66,8 +72,8 @@ export function createBrowserRunCdpConnection(options: ResolvedBrowserRunCdpOpti
 
 export function resolveBrowserRunCdpOptions(options: BrowserRunCdpOptions): ResolvedBrowserRunCdpOptions {
 	return {
-		accountId: options.accountId ?? process.env.CF_ACCOUNT_ID ?? process.env.CLOUDFLARE_ACCOUNT_ID ?? '',
-		apiToken: options.apiToken ?? process.env.CF_API_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN ?? '',
+		accountId: options.accountId ?? process.env[cloudflareAccountIdEnv] ?? process.env[legacyCloudflareAccountIdEnv] ?? '',
+		apiToken: options.apiToken ?? process.env[cloudflareApiTokenEnv] ?? process.env[legacyCloudflareApiTokenEnv] ?? '',
 		wsEndpoint: options.wsEndpoint ?? process.env.CF_BROWSER_RUN_WS_ENDPOINT ?? '',
 		publicOrigin: options.publicOrigin ?? process.env[browserRunPublicOriginEnv] ?? process.env[cloudflareTunnelUrlEnv] ?? '',
 		keepAliveMs: options.keepAliveMs ?? readNumber(process.env.CF_BROWSER_RUN_KEEP_ALIVE_MS, 600000, 'CF_BROWSER_RUN_KEEP_ALIVE_MS'),
@@ -91,7 +97,10 @@ export function getBrowserRunWsEndpoint(options: Pick<ResolvedBrowserRunCdpOptio
 	}
 
 	if (!options.accountId) {
-		throw new Error('Missing CF_ACCOUNT_ID. Set CF_BROWSER_RUN_WS_ENDPOINT or CF_ACCOUNT_ID before running Browser Run tests.');
+		throw new Error(
+			`Missing ${cloudflareAccountIdEnv}. Set ${cloudflareAccountIdEnv} in .env or your shell before running Browser Run tests. `
+			+ `You can also pass accountId to browserRunCdp(), set ${legacyCloudflareAccountIdEnv} as a legacy alias, or set CF_BROWSER_RUN_WS_ENDPOINT to bypass account-scoped URL construction.`,
+		);
 	}
 
 	const endpoint = new URL(`wss://api.cloudflare.com/client/v4/accounts/${options.accountId}/browser-rendering/devtools/browser`);
@@ -106,7 +115,10 @@ export function getBrowserRunWsEndpoint(options: Pick<ResolvedBrowserRunCdpOptio
 
 export function getBrowserRunApiToken(options: Pick<ResolvedBrowserRunCdpOptions, 'apiToken'>): string {
 	if (!options.apiToken) {
-		throw new Error('Missing CF_API_TOKEN. Create a token with Browser Rendering - Edit permission before running Browser Run tests.');
+		throw new Error(
+			`Missing ${cloudflareApiTokenEnv}. Set ${cloudflareApiTokenEnv} in .env or your shell before running Browser Run tests. `
+			+ `The token needs Browser Rendering - Edit permission. You can also pass apiToken to browserRunCdp() or set ${legacyCloudflareApiTokenEnv} as a legacy alias.`,
+		);
 	}
 
 	return options.apiToken;

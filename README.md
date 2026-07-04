@@ -231,11 +231,11 @@ At the time of this proof, `@cloudflare/vitest-pool-workers` supports Vitest `^4
 Set Browser Run credentials in the environment or in `.env`:
 
 ```sh
-CF_ACCOUNT_ID="<account-id>"
-CF_API_TOKEN="<token-with-browser-rendering-edit>"
+CLOUDFLARE_ACCOUNT_ID="<account-id>"
+CLOUDFLARE_API_TOKEN="<token-with-browser-rendering-edit>"
 ```
 
-`.env` is ignored by git via `.gitignore` and is loaded by `vitest.browser-run.config.ts` for local development. The ignore rule also covers `.env.local` and environment-specific `.env.*` files, while still allowing a future `.env.example` to be committed.
+`CLOUDFLARE_API_TOKEN` must have Browser Rendering - Edit permission. `.env` is ignored by git via `.gitignore` and is loaded by `vitest.browser-run.config.ts` for local development. The committed `.env.example` shows the expected keys without storing real secrets.
 
 Run the Browser Run visual suite with an automatic quick tunnel:
 
@@ -315,8 +315,8 @@ The Playwright provider reports `supportsParallelism = true`. In this proof shap
 
 Required for Browser Run:
 
-- `CF_ACCOUNT_ID` or `CLOUDFLARE_ACCOUNT_ID`
-- `CF_API_TOKEN` or `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN` with Browser Rendering - Edit permission
 
 Optional:
 
@@ -337,6 +337,17 @@ provider: browserRunCdp()
 
 `browserRunCdp()` reads the Browser Run env vars above and applies defaults internally. Pass explicit options only when a config file needs to override environment-driven behavior.
 
+Keep tokens out of committed Vitest config. If you need explicit options for a custom secret-loading path, read from your secret source and pass the values programmatically:
+
+```ts
+provider: browserRunCdp({
+  accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+  apiToken: process.env.CLOUDFLARE_API_TOKEN,
+})
+```
+
+Legacy `CF_ACCOUNT_ID` and `CF_API_TOKEN` aliases are still supported, but new projects should use the canonical `CLOUDFLARE_*` names that Wrangler documents.
+
 ## CI
 
 `.github/workflows/browser-run-visual.yml` runs on pull requests, pushes to `main`, and manual dispatches.
@@ -353,8 +364,10 @@ The workflow:
 
 The workflow expects these GitHub secrets:
 
-- `CF_ACCOUNT_ID`
-- `CF_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+
+The workflow also accepts legacy `CF_ACCOUNT_ID` and `CF_API_TOKEN` secrets as a fallback for existing CI setup.
 
 ## Upstreaming Notes
 
