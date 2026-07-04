@@ -17,7 +17,7 @@ importers:
       '@types/node':
         specifier: 26.1.0
         version: 26.1.0
-      '@vitest-browser-run/browser-run-provider':
+      '@cloudflare/vitest-browser-run-provider':
         specifier: workspace:*
         version: link:packages/browser-run-provider
       '@vitest/browser':

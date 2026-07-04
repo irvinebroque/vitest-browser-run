@@ -1,5 +1,5 @@
 {
-	"name": "@vitest-browser-run/browser-run-provider",
+	"name": "@cloudflare/vitest-browser-run-provider",
 	"version": "0.0.0",
 	"type": "module",
 	"description": "Cloudflare Browser Run connector for Vitest's Playwright browser provider",

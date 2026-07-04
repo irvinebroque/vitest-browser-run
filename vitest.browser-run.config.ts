@@ -4,7 +4,7 @@ import { loadEnvFile } from 'node:process';
 import { cloudflare } from '@cloudflare/vite-plugin';
 import { defineConfig } from 'vitest/config';
 
-import { browserRunCdp } from '@vitest-browser-run/browser-run-provider';
+import { browserRunCdp } from '@cloudflare/vitest-browser-run-provider';
 
 loadDotEnv();
 
