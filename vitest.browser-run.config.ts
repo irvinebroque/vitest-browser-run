@@ -1,12 +1,14 @@
 import { existsSync } from 'node:fs';
 import { loadEnvFile } from 'node:process';
 
+import { cloudflare } from '@cloudflare/vite-plugin';
 import { defineConfig } from 'vitest/config';
 
-import { browserRunCdp, browserRunTunnel } from '@vitest-browser-run/browser-run-provider';
+import { browserRunCdp } from '@vitest-browser-run/browser-run-provider';
 
 loadDotEnv();
 
+const browserRunPublicOriginEnv = 'VITEST_BROWSER_PUBLIC_ORIGIN';
 const browserApiHost = process.env.VITEST_BROWSER_API_HOST ?? '0.0.0.0';
 const browserApiPort = Number(process.env.VITEST_BROWSER_API_PORT ?? '63315');
 const browserRunConcurrency = Number(process.env.CF_BROWSER_RUN_CONCURRENCY ?? process.env.VITEST_MAX_WORKERS ?? '4');
@@ -18,7 +20,14 @@ function loadDotEnv(): void {
 }
 
 export default defineConfig({
-	plugins: [browserRunTunnel({ port: browserApiPort })],
+	plugins: [cloudflare({
+		tunnel: process.env[browserRunPublicOriginEnv]
+			? undefined
+			: {
+				autoStart: true,
+				env: browserRunPublicOriginEnv,
+			},
+	})],
 	server: {
 		host: browserApiHost,
 		port: browserApiPort,

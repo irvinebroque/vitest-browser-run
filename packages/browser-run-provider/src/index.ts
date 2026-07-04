@@ -15,5 +15,3 @@ export {
 	waitForLocalBrowserRunner,
 	type BrowserRunnerPublicOrigin,
 } from './runner-origin.js';
-export { browserRunTunnel, type BrowserRunTunnelOptions } from './vitest-plugin.js';
-export { cloudflared, expose, type Tunnel, type TunnelOptions } from './tunnel.js';

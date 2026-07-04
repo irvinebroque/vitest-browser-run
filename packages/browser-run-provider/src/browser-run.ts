@@ -26,11 +26,15 @@ export function browserRunCdp(options: BrowserRunCdpOptions = {}): BrowserProvid
 	return playwright({
 		connectOverCDPOptions: createBrowserRunCdpConnection(resolvedOptions),
 		runner: {
-			resolveUrl: ({ url }) => resolveBrowserRunRunnerUrl(url, resolvedOptions.publicOrigin),
+			resolveUrl: ({ url }) => resolveBrowserRunRunnerUrl(url, getBrowserRunPublicOrigin(options)),
 			waitForReady: ({ url }) => waitForLocalBrowserRunner(url),
 		},
 		contextStrategy: 'reuse-default-on-failure',
 	} satisfies PlaywrightProviderOptions);
+}
+
+function getBrowserRunPublicOrigin(options: BrowserRunCdpOptions): string {
+	return options.publicOrigin ?? process.env[browserRunPublicOriginEnv] ?? '';
 }
 
 export function createBrowserRunCdpConnection(options: ResolvedBrowserRunCdpOptions): BrowserRunCdpConnectOptions {
@@ -45,7 +49,7 @@ export function resolveBrowserRunCdpOptions(options: BrowserRunCdpOptions): Reso
 		accountId: options.accountId ?? process.env.CF_ACCOUNT_ID ?? process.env.CLOUDFLARE_ACCOUNT_ID ?? '',
 		apiToken: options.apiToken ?? process.env.CF_API_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN ?? '',
 		wsEndpoint: options.wsEndpoint ?? process.env.CF_BROWSER_RUN_WS_ENDPOINT ?? '',
-		publicOrigin: options.publicOrigin ?? process.env.VITEST_BROWSER_PUBLIC_ORIGIN ?? '',
+		publicOrigin: options.publicOrigin ?? process.env[browserRunPublicOriginEnv] ?? '',
 		keepAliveMs: options.keepAliveMs ?? readNumber(process.env.CF_BROWSER_RUN_KEEP_ALIVE_MS, 600000, 'CF_BROWSER_RUN_KEEP_ALIVE_MS'),
 		recording: options.recording ?? readBoolean(process.env.CF_BROWSER_RUN_RECORDING, false, 'CF_BROWSER_RUN_RECORDING'),
 	};

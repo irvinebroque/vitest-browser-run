@@ -22,7 +22,7 @@
 	},
 	"devDependencies": {
 		"@vitest-browser-run/browser-run-provider": "workspace:*",
-		"@cloudflare/vite-plugin": "1.42.4",
+		"@cloudflare/vite-plugin": "link:../workers-sdk-vite-tunnel-programmatic-url/packages/vite-plugin-cloudflare",
 		"@cloudflare/vitest-pool-workers": "0.17.0",
 		"@types/node": "26.1.0",
 		"@vitest/browser": "link:../vitest/packages/browser",
