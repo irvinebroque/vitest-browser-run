@@ -8,7 +8,6 @@ import { browserRunCdp } from '@vitest-browser-run/browser-run-provider';
 
 loadDotEnv();
 
-const browserRunPublicOriginEnv = 'VITEST_BROWSER_PUBLIC_ORIGIN';
 const browserApiHost = process.env.VITEST_BROWSER_API_HOST ?? '0.0.0.0';
 const browserApiPort = Number(process.env.VITEST_BROWSER_API_PORT ?? '63315');
 const browserRunConcurrency = Number(process.env.CF_BROWSER_RUN_CONCURRENCY ?? process.env.VITEST_MAX_WORKERS ?? '4');
@@ -22,8 +21,7 @@ function loadDotEnv(): void {
 export default defineConfig({
 	plugins: [cloudflare({
 		tunnel: {
-			autoStart: !process.env[browserRunPublicOriginEnv],
-			env: browserRunPublicOriginEnv,
+			autoStart: true,
 		},
 	})],
 	server: {

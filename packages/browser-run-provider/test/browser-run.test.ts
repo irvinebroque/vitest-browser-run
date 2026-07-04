@@ -90,6 +90,17 @@ describe('Browser Run CDP connector', () => {
 		});
 	});
 
+	it('uses Cloudflare tunnel URL as the fallback public origin', () => {
+		vi.stubEnv('CF_ACCOUNT_ID', 'env-account');
+		vi.stubEnv('CF_API_TOKEN', 'env-token');
+		vi.stubEnv('VITEST_BROWSER_PUBLIC_ORIGIN', undefined);
+		vi.stubEnv('CLOUDFLARE_TUNNEL_URL', 'https://tunnel.example.com');
+
+		expect(resolveBrowserRunCdpOptions({})).toMatchObject({
+			publicOrigin: 'https://tunnel.example.com',
+		});
+	});
+
 	it('rewrites Browser Run runner URLs with the configured public origin', () => {
 		expect(resolveBrowserRunRunnerUrl(
 			'http://127.0.0.1:63315/__vitest_test__/?sessionId=abc',
@@ -101,7 +112,7 @@ describe('Browser Run CDP connector', () => {
 		expect(() => resolveBrowserRunRunnerUrl(
 			'http://127.0.0.1:63315/__vitest_test__/?sessionId=abc',
 			'',
-		)).toThrow('Missing VITEST_BROWSER_PUBLIC_ORIGIN');
+		)).toThrow('Missing VITEST_BROWSER_PUBLIC_ORIGIN or CLOUDFLARE_TUNNEL_URL');
 	});
 
 	it('reads public origin lazily for Vite plugin tunnel startup', async () => {
@@ -124,5 +135,28 @@ describe('Browser Run CDP connector', () => {
 			parallel: false,
 			browserName: 'chromium',
 		})).toBe('https://runner.example.com/__vitest_test__/?sessionId=abc');
+	});
+
+	it('reads the Cloudflare tunnel URL lazily for Vite plugin auto tunnels', async () => {
+		vi.stubEnv('CF_ACCOUNT_ID', 'env-account');
+		vi.stubEnv('CF_API_TOKEN', 'env-token');
+		vi.stubEnv('VITEST_BROWSER_PUBLIC_ORIGIN', undefined);
+
+		const provider = browserRunCdp() as ReturnType<typeof browserRunCdp> & {
+			options: {
+				runner: {
+					resolveUrl: (context: { url: string; sessionId: string; parallel: boolean; browserName: 'chromium' }) => string | Promise<string>;
+				};
+			};
+		};
+
+		vi.stubEnv('CLOUDFLARE_TUNNEL_URL', 'https://tunnel.example.com');
+
+		expect(await provider.options.runner.resolveUrl({
+			url: 'http://127.0.0.1:63315/__vitest_test__/?sessionId=abc',
+			sessionId: 'abc',
+			parallel: false,
+			browserName: 'chromium',
+		})).toBe('https://tunnel.example.com/__vitest_test__/?sessionId=abc');
 	});
 });
