@@ -275,6 +275,8 @@ test: {
 
 The Cloudflare Vite plugin starts a quick tunnel for the Vitest browser API server and writes the primary public tunnel URL to `VITEST_BROWSER_PUBLIC_ORIGIN` after the tunnel is ready. `browserRunCdp()` reads that env var when the Playwright provider resolves the runner URL for navigation.
 
+The config includes two compatibility shims for this pending-upstream combination. One clears Vitest's injected `resolve.external` setting for the Cloudflare tunnel Vite environment. The other leaves Vitest's `/__vitest_browser_api__` WebSocket upgrade with Vitest because the Cloudflare Vite plugin's Worker WebSocket forwarding handles non-HMR upgrades and would otherwise close Vitest's browser RPC socket.
+
 Cloudflare quick tunnels intentionally create random `*.trycloudflare.com` hostnames. They are suitable for short-lived CI and demos; set `VITEST_BROWSER_PUBLIC_ORIGIN` yourself if you want to provide a different public runner origin or skip automatic tunnel startup.
 
 ## Visual Regression Flow

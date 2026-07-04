@@ -22,15 +22,39 @@ export interface ResolvedBrowserRunCdpOptions extends Required<BrowserRunCdpOpti
 
 export function browserRunCdp(options: BrowserRunCdpOptions = {}): BrowserProviderOption {
 	const resolvedOptions = resolveBrowserRunCdpOptions(options);
+	const shouldWaitForTunnelSettle = !resolvedOptions.publicOrigin;
 
 	return playwright({
 		connectOverCDPOptions: createBrowserRunCdpConnection(resolvedOptions),
 		runner: {
 			resolveUrl: ({ url }) => resolveBrowserRunRunnerUrl(url, getBrowserRunPublicOrigin(options)),
-			waitForReady: ({ url }) => waitForLocalBrowserRunner(url),
+			waitForReady: ({ url }) => waitForBrowserRunRunnerReady(url, options, shouldWaitForTunnelSettle),
 		},
 		contextStrategy: 'reuse-default-on-failure',
 	} satisfies PlaywrightProviderOptions);
+}
+
+async function waitForBrowserRunRunnerReady(url: string, options: BrowserRunCdpOptions, shouldWaitForTunnelSettle: boolean): Promise<void> {
+	await waitForLocalBrowserRunner(url);
+	await waitForBrowserRunPublicOrigin(options);
+	await waitForLocalBrowserRunner(url, { attempts: 120, intervalMs: 500 });
+
+	if (shouldWaitForTunnelSettle) {
+		await new Promise((resolve) => setTimeout(resolve, 10_000));
+	}
+}
+
+async function waitForBrowserRunPublicOrigin(options: BrowserRunCdpOptions): Promise<string> {
+	for (let attempt = 1; attempt <= 120; attempt += 1) {
+		const publicOrigin = getBrowserRunPublicOrigin(options);
+		if (publicOrigin) {
+			return publicOrigin;
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, 250));
+	}
+
+	return getBrowserRunPublicOrigin(options);
 }
 
 function getBrowserRunPublicOrigin(options: BrowserRunCdpOptions): string {
