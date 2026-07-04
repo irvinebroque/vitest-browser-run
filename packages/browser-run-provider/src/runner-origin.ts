@@ -50,8 +50,3 @@ export async function waitForLocalBrowserRunner(url: string, options: BrowserRun
 
 	throw new Error(`Vitest browser runner did not become reachable at ${localUrl.href}.`, { cause: lastError });
 }
-
-export function isTransientBrowserRunnerNavigationError(error: unknown): boolean {
-	const message = String(error);
-	return message.includes('ERR_CONNECTION_RESET') || message.includes('ERR_CONNECTION_REFUSED');
-}

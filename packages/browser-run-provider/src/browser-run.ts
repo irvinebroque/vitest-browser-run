@@ -22,26 +22,21 @@ export interface ResolvedBrowserRunCdpOptions extends Required<BrowserRunCdpOpti
 
 export function browserRunCdp(options: BrowserRunCdpOptions = {}): BrowserProviderOption {
 	const resolvedOptions = resolveBrowserRunCdpOptions(options);
-	const shouldWaitForTunnelSettle = !resolvedOptions.publicOrigin;
 
 	return playwright({
 		connectOverCDPOptions: createBrowserRunCdpConnection(resolvedOptions),
 		runner: {
 			resolveUrl: ({ url }) => resolveBrowserRunRunnerUrl(url, getBrowserRunPublicOrigin(options)),
-			waitForReady: ({ url }) => waitForBrowserRunRunnerReady(url, options, shouldWaitForTunnelSettle),
+			waitForReady: ({ url }) => waitForBrowserRunRunnerReady(url, options),
 		},
 		contextStrategy: 'reuse-default-on-failure',
 	} satisfies PlaywrightProviderOptions);
 }
 
-async function waitForBrowserRunRunnerReady(url: string, options: BrowserRunCdpOptions, shouldWaitForTunnelSettle: boolean): Promise<void> {
+async function waitForBrowserRunRunnerReady(url: string, options: BrowserRunCdpOptions): Promise<void> {
 	await waitForLocalBrowserRunner(url);
 	await waitForBrowserRunPublicOrigin(options);
 	await waitForLocalBrowserRunner(url, { attempts: 120, intervalMs: 500 });
-
-	if (shouldWaitForTunnelSettle) {
-		await new Promise((resolve) => setTimeout(resolve, 10_000));
-	}
 }
 
 async function waitForBrowserRunPublicOrigin(options: BrowserRunCdpOptions): Promise<string> {
