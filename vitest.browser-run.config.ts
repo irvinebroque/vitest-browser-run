@@ -21,12 +21,10 @@ function loadDotEnv(): void {
 
 export default defineConfig({
 	plugins: [cloudflare({
-		tunnel: process.env[browserRunPublicOriginEnv]
-			? undefined
-			: {
-				autoStart: true,
-				env: browserRunPublicOriginEnv,
-			},
+		tunnel: {
+			autoStart: !process.env[browserRunPublicOriginEnv],
+			env: browserRunPublicOriginEnv,
+		},
 	})],
 	server: {
 		host: browserApiHost,

@@ -240,7 +240,7 @@ The Vitest config starts the tunnel and configures the provider:
 ```ts
 plugins: [cloudflare({
   tunnel: {
-    autoStart: true,
+    autoStart: !process.env.VITEST_BROWSER_PUBLIC_ORIGIN,
     env: 'VITEST_BROWSER_PUBLIC_ORIGIN',
   },
 })],
