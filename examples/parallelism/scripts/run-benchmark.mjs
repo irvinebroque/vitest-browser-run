@@ -78,9 +78,9 @@ for (const mode of modes) {
 const summaries = await writeBenchmarkReport(modes);
 
 console.log('\nBenchmark summary');
-console.log('Mode                  Scenarios  Max concurrency  Wall time');
+console.log('Mode                  Scenarios  Browsers  Max concurrency  Max/browser  Wall time');
 for (const summary of summaries) {
-	console.log(`${summary.mode.padEnd(22)}${String(summary.scenarioCount).padStart(9)}${String(summary.maxConcurrency).padStart(17)}${formatDuration(summary.wallTimeMs).padStart(11)}`);
+	console.log(`${summary.mode.padEnd(22)}${String(summary.scenarioCount).padStart(9)}${formatCount(summary.browserSessionCount).padStart(10)}${String(summary.maxConcurrency).padStart(17)}${formatCount(summary.maxPerBrowserConcurrency).padStart(13)}${formatDuration(summary.wallTimeMs).padStart(11)}`);
 }
 
 if (failures.length) {
@@ -116,4 +116,8 @@ function formatDuration(ms) {
 
 	const minutes = Math.floor(seconds / 60);
 	return `${minutes}m ${(seconds % 60).toFixed(0)}s`;
+}
+
+function formatCount(value) {
+	return value ? String(value) : 'n/a';
 }

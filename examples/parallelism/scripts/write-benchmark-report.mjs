@@ -64,16 +64,58 @@ function summarizeMode(mode, events, metadata) {
 	const passed = events.filter((event) => event.status === 'passed').length;
 	const failed = events.filter((event) => event.status === 'failed').length;
 	const wallTimeMs = metadata.wallTimeMs || (events.length ? Math.max(...events.map((event) => event.endTime)) - Math.min(...events.map((event) => event.startTime)) : 0);
+	const browserGroups = groupEventsByBrowser(events);
 	return {
+		browserGroups,
+		browserSessionCount: browserGroups.length,
 		events,
 		failed,
 		maxConcurrency: maxConcurrency(events),
+		maxPerBrowserConcurrency: browserGroups.length ? Math.max(...browserGroups.map((group) => group.maxConcurrency)) : 0,
 		metadata,
 		mode,
 		passed,
 		scenarioCount: events.length,
 		wallTimeMs,
 	};
+}
+
+function groupEventsByBrowser(events) {
+	const groups = new Map();
+	for (const event of events) {
+		const key = browserGroupKey(event);
+		if (!key) {
+			continue;
+		}
+
+		const group = groups.get(key) ?? {
+			browserLeaseId: event.browserLeaseId,
+			browserLeaseIndex: event.browserLeaseIndex,
+			browserRunSessionId: event.browserRunSessionId,
+			events: [],
+			key,
+			maxConcurrency: 0,
+		};
+		group.events.push(event);
+		groups.set(key, group);
+	}
+
+	return Array.from(groups.values()).map((group) => ({
+		...group,
+		maxConcurrency: maxConcurrency(group.events),
+	})).sort((a, b) => Number(a.browserLeaseIndex ?? 0) - Number(b.browserLeaseIndex ?? 0) || a.key.localeCompare(b.key));
+}
+
+function browserGroupKey(event) {
+	if (event.browserRunSessionId) {
+		return event.browserRunSessionId;
+	}
+
+	if (event.browserLeaseId != null) {
+		return `lease-${event.browserLeaseId}`;
+	}
+
+	return '';
 }
 
 function maxConcurrency(events) {
@@ -98,13 +140,13 @@ function renderMarkdown(summaries) {
 	const baseline = summaries.find((summary) => summary.mode === 'local-serial')?.wallTimeMs || summaries[0]?.wallTimeMs || 0;
 	const rows = summaries.map((summary) => {
 		const speedup = summary.wallTimeMs > 0 && baseline > 0 ? `${(baseline / summary.wallTimeMs).toFixed(1)}x` : 'n/a';
-		return `| ${summary.mode} | ${summary.scenarioCount} | ${summary.maxConcurrency} | ${formatDuration(summary.wallTimeMs)} | ${speedup} | ${summary.passed}/${summary.failed} |`;
+		return `| ${summary.mode} | ${summary.scenarioCount} | ${formatCount(summary.browserSessionCount)} | ${summary.maxConcurrency} | ${formatCount(summary.maxPerBrowserConcurrency)} | ${formatDuration(summary.wallTimeMs)} | ${speedup} | ${summary.passed}/${summary.failed} |`;
 	});
 
 	return `# Browser Benchmark Summary
 
-| Mode | Scenarios | Max concurrency | Wall time | Speedup vs baseline | Passed/failed |
-| --- | ---: | ---: | ---: | ---: | ---: |
+| Mode | Scenarios | Browser sessions | Max concurrency | Max/browser | Wall time | Speedup vs baseline | Passed/failed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 ${rows.join('\n')}
 `;
 }
@@ -137,7 +179,7 @@ function renderHtml(summaries) {
     <h1>Browser benchmark report</h1>
     <p>This report shows the same production-style scenario matrix across benchmark modes. Timelines show observed file-level overlap.</p>
     <table>
-      <thead><tr><th>Mode</th><th>Scenarios</th><th>Max concurrency</th><th>Wall time</th><th>Speedup</th><th>Passed/failed</th></tr></thead>
+      <thead><tr><th>Mode</th><th>Scenarios</th><th>Browser sessions</th><th>Max concurrency</th><th>Max/browser</th><th>Wall time</th><th>Speedup</th><th>Passed/failed</th></tr></thead>
       <tbody>
         ${summaries.map((summary) => renderSummaryRow(summary, baseline)).join('\n')}
       </tbody>
@@ -150,7 +192,7 @@ function renderHtml(summaries) {
 
 function renderSummaryRow(summary, baseline) {
 	const speedup = summary.wallTimeMs > 0 && baseline > 0 ? `${(baseline / summary.wallTimeMs).toFixed(1)}x` : 'n/a';
-	return `<tr><td><code>${escapeHtml(summary.mode)}</code></td><td>${summary.scenarioCount}</td><td>${summary.maxConcurrency}</td><td>${formatDuration(summary.wallTimeMs)}</td><td>${speedup}</td><td>${summary.passed}/${summary.failed}</td></tr>`;
+	return `<tr><td><code>${escapeHtml(summary.mode)}</code></td><td>${summary.scenarioCount}</td><td>${formatCount(summary.browserSessionCount)}</td><td>${summary.maxConcurrency}</td><td>${formatCount(summary.maxPerBrowserConcurrency)}</td><td>${formatDuration(summary.wallTimeMs)}</td><td>${speedup}</td><td>${summary.passed}/${summary.failed}</td></tr>`;
 }
 
 function renderModeCard(summary) {
@@ -160,14 +202,30 @@ function renderModeCard(summary) {
 		const left = ((event.startTime - start) / span) * 100;
 		const width = Math.max(((event.endTime - event.startTime) / span) * 100, 0.6);
 		const top = 12 + (index % 12) * 12;
-		return `<span class="bar ${event.status === 'failed' ? 'failed' : ''}" style="left: ${left}%; width: ${width}%; top: ${top}px" title="${escapeHtml(event.scenarioId)}"></span>`;
+		const color = event.status === 'failed' ? '#dc2626' : browserColor(event);
+		const title = `${event.scenarioId}${event.browserRunSessionId ? ` | browser ${event.browserLeaseId}: ${event.browserRunSessionId}` : ''}`;
+		return `<span class="bar ${event.status === 'failed' ? 'failed' : ''}" style="left: ${left}%; width: ${width}%; top: ${top}px; background: ${color}" title="${escapeHtml(title)}"></span>`;
 	}).join('\n');
+	const browserBreakdown = summary.browserGroups.length
+		? `<ul>${summary.browserGroups.map((group) => `<li>Browser ${escapeHtml(group.browserLeaseId ?? group.key)}: ${group.events.length} scenarios, max concurrency ${group.maxConcurrency}</li>`).join('')}</ul>`
+		: '<p>No provider browser-session metadata was recorded for this mode.</p>';
 
 	return `<section class="mode">
   <h2>${escapeHtml(summary.mode)}</h2>
-  <p>${summary.scenarioCount} scenarios, max concurrency ${summary.maxConcurrency}, wall time ${formatDuration(summary.wallTimeMs)}.</p>
+  <p>${summary.scenarioCount} scenarios, ${formatCount(summary.browserSessionCount)} browser sessions, max concurrency ${summary.maxConcurrency}, max/browser ${formatCount(summary.maxPerBrowserConcurrency)}, wall time ${formatDuration(summary.wallTimeMs)}.</p>
+  ${browserBreakdown}
   <div class="timeline" style="height: ${Math.max(96, 24 + Math.min(summary.events.length, 12) * 12)}px">${bars}</div>
 </section>`;
+}
+
+function browserColor(event) {
+	const colors = ['#2563eb', '#7c3aed', '#059669', '#ea580c', '#0891b2', '#be123c', '#4f46e5', '#16a34a'];
+	const index = Number(event.browserLeaseIndex ?? event.browserLeaseId ?? 0);
+	return colors[Math.abs(index) % colors.length];
+}
+
+function formatCount(value) {
+	return value ? String(value) : 'n/a';
 }
 
 function formatDuration(ms) {
@@ -204,6 +262,6 @@ function escapeHtml(value) {
 if (import.meta.url === `file://${process.argv[1]}`) {
 	const summaries = await writeBenchmarkReport(process.argv.slice(2));
 	for (const summary of summaries) {
-		console.log(`${summary.mode}: ${summary.scenarioCount} scenarios, max concurrency ${summary.maxConcurrency}, wall time ${formatDuration(summary.wallTimeMs)}`);
+		console.log(`${summary.mode}: ${summary.scenarioCount} scenarios, ${formatCount(summary.browserSessionCount)} browser sessions, max concurrency ${summary.maxConcurrency}, max/browser ${formatCount(summary.maxPerBrowserConcurrency)}, wall time ${formatDuration(summary.wallTimeMs)}`);
 	}
 }

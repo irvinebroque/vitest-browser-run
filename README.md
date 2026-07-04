@@ -4,31 +4,30 @@ This repo is a proof-of-concept for running Vitest Browser Mode tests on Cloudfl
 
 The repo has two parts:
 
-- `packages/browser-run-provider` is the Cloudflare Browser Run connector around `@vitest/browser-playwright`.
+- `packages/browser-run-provider` is the Cloudflare Browser Run connector for Vitest Browser Mode and Playwright CDP.
 - `examples/parallelism` is a Worker app and Browser Mode test suite that demonstrates file-level parallelism on Browser Run.
 
 ## Parallelism Model
 
-The example intentionally uses the efficient Playwright/Vitest model:
+The provider supports a two-level parallelism model:
 
 - Vitest schedules browser test files across `test.maxWorkers`.
-- The Playwright provider keeps one connected browser and opens isolated pages/contexts for Vitest browser sessions.
-- Browser Run supplies that connected hosted Chromium session over CDP.
-- With `CLOUDFLARE_BROWSER_RUN_CONCURRENCY=8`, the example runs eight browser test files at once inside one shared hosted Chromium session.
+- The Browser Run provider assigns those Vitest browser sessions to hosted Chromium sessions.
+- Each hosted Chromium session can run multiple isolated pages/contexts.
+- `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS` caps actual Browser Run browser sessions.
+- `CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER` caps pages/contexts per hosted browser.
 
-This is not eight separate Browser Run browser instances. That is deliberate: one Chromium browser can run many pages/contexts, and the example is designed to make good use of that hosted browser rather than burning a new browser per test file.
+For example, `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=2`, `CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=4`, and `CLOUDFLARE_BROWSER_RUN_CONCURRENCY=8` runs up to eight browser test files at once across two Browser Run Chromium sessions.
 
-If future tests need hard process-level isolation, the connector may need a separate `browser-per-session` mode. That mode is not implemented here because the shared-browser path is the simpler and more resource-efficient proof.
+If you omit the pool settings, the provider keeps the original efficient default: one Browser Run browser with as many Vitest pages/contexts as `maxWorkers` requires.
 
 ## Browser Run Launch Rate
 
-The example does not implement launch throttling because it opens one Browser Run browser for the suite.
-
-Browser Run currently has a new-browser creation rate limit. If a future mode opens one Browser Run browser per Vitest session, launch pacing may be required to avoid `429` responses. That pacing would be a Browser Run service constraint/workaround, not a Vitest feature or something this example should need in the shared-browser model.
+Browser Run currently has a new-browser creation rate limit. The provider paces Browser Run session acquisition with `CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS` and retries `429` responses using `Retry-After` when available.
 
 ## Connector Shape
 
-`browserRunCdp()` builds a Browser Run CDP endpoint, provides the authorization header, waits for the local Vitest browser runner to become reachable, rewrites the local runner URL to the public tunnel origin, and then delegates to `@vitest/browser-playwright`:
+`browserRunCdp()` acquires Browser Run CDP sessions, provides authorization headers, waits for the local Vitest browser runner to become reachable, rewrites the local runner URL to the public tunnel origin, and opens isolated pages/contexts for Vitest browser sessions:
 
 ```ts
 browserRunCdp({
@@ -36,11 +35,12 @@ browserRunCdp({
 	apiToken,
 	keepAliveMs: 600000,
 	recording: true,
-	publicOrigin: 'https://runner.example.com',
+	pool: {
+		maxBrowsers: 2,
+		sessionsPerBrowser: 4,
+	},
 })
 ```
-
-Internally that becomes a Playwright provider configured with `connectOverCDPOptions` and runner URL hooks.
 
 ## Running Locally
 
@@ -133,6 +133,8 @@ Set Browser Run credentials in either `examples/parallelism/.env`, the repo-root
 CLOUDFLARE_ACCOUNT_ID="<account-id>"
 CLOUDFLARE_API_TOKEN="<token-with-browser-rendering-edit>"
 CLOUDFLARE_BROWSER_RUN_CONCURRENCY="8"
+CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="2"
+CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER="4"
 ```
 
 `CLOUDFLARE_API_TOKEN` must have Browser Rendering - Edit permission. The committed example file is `examples/parallelism/.env.example`; real `.env` files stay ignored.

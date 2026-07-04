@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { browserRunCdp, type BrowserRunCdpConnectOptions } from '../src/index.js';
+import { browserRunCdp, type BrowserRunCdpConnectOptions, type BrowserRunPoolOptions } from '../src/index.js';
 
 describe('public Browser Run provider types', () => {
 	it('accepts Browser Run connector options backed by @vitest/browser-playwright', () => {
@@ -9,7 +9,23 @@ describe('public Browser Run provider types', () => {
 			apiToken: 'token',
 			keepAliveMs: 600000,
 			recording: true,
+			pool: {
+				acquireIntervalMs: 1000,
+				acquireTimeoutMs: 180000,
+				maxBrowsers: 10,
+				retry429: true,
+				sessionsPerBrowser: 4,
+			},
 		});
+	});
+
+	it('exposes Browser Run pool options', () => {
+		const options = {
+			maxBrowsers: 2,
+			sessionsPerBrowser: 4,
+		} satisfies BrowserRunPoolOptions;
+
+		expectTypeOf(options.maxBrowsers).toEqualTypeOf<number>();
 	});
 
 	it('exposes Playwright CDP connect options', () => {

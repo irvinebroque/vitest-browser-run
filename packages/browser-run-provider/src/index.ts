@@ -3,10 +3,14 @@ export {
 	createBrowserRunCdpConnection,
 	getBrowserRunApiToken,
 	getBrowserRunWsEndpoint,
+	resolveBrowserRunPoolOptions,
 	resolveBrowserRunRunnerUrl,
 	resolveBrowserRunCdpOptions,
+	validateBrowserRunPoolOptions,
 	type BrowserRunCdpConnectOptions,
 	type BrowserRunCdpOptions,
+	type BrowserRunPoolOptions,
+	type ResolvedBrowserRunPoolOptions,
 	type ResolvedBrowserRunCdpOptions,
 } from './browser-run.js';
 export {

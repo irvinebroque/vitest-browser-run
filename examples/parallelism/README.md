@@ -14,15 +14,20 @@ test: {
 		enabled: true,
 		headless: true,
 		fileParallelism: true,
-		provider: browserRunCdp(),
+		provider: browserRunCdp({
+			pool: {
+				maxBrowsers: Number(process.env.CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS ?? '1'),
+				sessionsPerBrowser: Number(process.env.CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER ?? '0'),
+			},
+		}),
 		instances: [{ browser: 'chromium' }],
 	},
 }
 ```
 
-With eight browser test files and `CLOUDFLARE_BROWSER_RUN_CONCURRENCY=8`, Vitest schedules eight files concurrently. The Playwright provider connects to one Browser Run Chromium session and opens pages/contexts for those Vitest browser sessions.
+With eight browser test files and `CLOUDFLARE_BROWSER_RUN_CONCURRENCY=8`, Vitest schedules eight files concurrently. By default, the provider connects to one Browser Run Chromium session and opens pages/contexts for those Vitest browser sessions.
 
-That shared-browser model is intentional. It avoids unnecessary Browser Run browser launches while still proving browser test parallelism.
+Set `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=2` and `CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=4` to distribute the same eight Vitest sessions across two hosted Chromium sessions. This lets the suite scale past one browser while still avoiding one browser launch per test file.
 
 ## Large-App Benchmark
 
@@ -49,7 +54,7 @@ This shape is meant to mirror real production needs:
 - feature flag rollout checks
 - post-deploy smoke validation
 
-Each scenario holds its browser page open for a deterministic delay. Serial runs are intentionally slow; parallel runs should show visible overlap in the generated timeline report.
+Each scenario holds its browser page open for a deterministic delay. Serial runs are intentionally slow; parallel runs should show visible overlap in the generated timeline report. Browser Run benchmark events also record the Browser Run lease/session assigned by the provider.
 
 ## Test Shape
 
@@ -94,6 +99,14 @@ Run the 96-scenario Browser Run benchmark:
 pnpm bench:browser-run
 ```
 
+The Browser Run benchmark defaults to two hosted browsers with four Vitest sessions per browser:
+
+```sh
+CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=2
+CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=4
+CLOUDFLARE_BROWSER_RUN_CONCURRENCY=8
+```
+
 Run local comparison modes:
 
 ```sh
@@ -116,7 +129,7 @@ LOCAL_BROWSER_CHANNEL=msedge pnpm bench:local:parallel
 Benchmark artifacts are written to `artifacts/benchmark/`:
 
 - `benchmark-summary.md` gives a terminal-friendly table.
-- `benchmark-report.html` shows a timeline of overlapping test files.
+- `benchmark-report.html` shows a timeline of overlapping test files and per-browser distribution.
 - `<mode>/benchmark-events.jsonl` contains the raw per-scenario timing events.
 
 ## Credentials
@@ -127,6 +140,8 @@ Create `.env` in this directory or at the repo root:
 CLOUDFLARE_ACCOUNT_ID="<account-id>"
 CLOUDFLARE_API_TOKEN="<token-with-browser-rendering-edit>"
 CLOUDFLARE_BROWSER_RUN_CONCURRENCY="8"
+CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="2"
+CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER="4"
 ```
 
 The token needs Browser Rendering - Edit permission.
@@ -135,15 +150,16 @@ Optional benchmark controls:
 
 ```sh
 CLOUDFLARE_BROWSER_RUN_CONCURRENCY="8"
+CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="2"
+CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER="4"
+CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS="1000"
 LOCAL_BROWSER_CONCURRENCY="4"
 VITEST_SCENARIO_DELAY_MS="2200"
 ```
 
 ## Launch Throttling
 
-This example does not use launch throttling because it opens one Browser Run browser and runs parallel pages/contexts inside it.
-
-If a future mode opens one Browser Run browser per Vitest session, Browser Run's new-browser rate limit may require pacing to avoid `429` responses. That would be a Browser Run limitation/workaround, not a feature of this example.
+The provider paces new Browser Run session acquisition with `CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS` and retries `429` responses using `Retry-After` when Browser Run asks the client to slow down.
 
 ## Routes
 

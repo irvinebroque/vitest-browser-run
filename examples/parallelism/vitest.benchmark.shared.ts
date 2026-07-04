@@ -9,6 +9,18 @@ export const browserApiPort = Number(process.env.VITEST_BROWSER_API_PORT ?? '633
 
 export const scenarioDelayMs = process.env.VITEST_SCENARIO_DELAY_MS ?? '2200';
 
+export const browserRunMaxBrowsers = Number(process.env.CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS ?? '2');
+
+export const browserRunSessionsPerBrowser = Number(process.env.CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER ?? '4');
+
+export const browserRunAcquireIntervalMs = Number(process.env.CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS ?? '1000');
+
+export const browserRunConcurrency = Number(
+	process.env.CLOUDFLARE_BROWSER_RUN_CONCURRENCY
+	?? process.env.VITEST_MAX_WORKERS
+	?? String(browserRunMaxBrowsers * browserRunSessionsPerBrowser),
+);
+
 export function loadDotEnv(): void {
 	for (const envPath of ['.env', '../../.env']) {
 		if (existsSync(envPath)) {

@@ -2,11 +2,19 @@ import { cloudflare } from '@cloudflare/vite-plugin';
 import { defineConfig } from 'vitest/config';
 
 import { browserRunCdp } from '@cloudflare/vitest-browser-run-provider';
-import { benchmarkInclude, browserApiHost, browserApiPort, loadDotEnv, scenarioDelayMs } from './vitest.benchmark.shared';
+import {
+	benchmarkInclude,
+	browserApiHost,
+	browserApiPort,
+	browserRunAcquireIntervalMs,
+	browserRunConcurrency,
+	browserRunMaxBrowsers,
+	browserRunSessionsPerBrowser,
+	loadDotEnv,
+	scenarioDelayMs,
+} from './vitest.benchmark.shared';
 
 loadDotEnv();
-
-const browserRunConcurrency = Number(process.env.CLOUDFLARE_BROWSER_RUN_CONCURRENCY ?? process.env.VITEST_MAX_WORKERS ?? '8');
 
 export default defineConfig({
 	plugins: [cloudflare({
@@ -25,6 +33,8 @@ export default defineConfig({
 		fileParallelism: true,
 		maxWorkers: browserRunConcurrency,
 		env: {
+			CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS: String(browserRunMaxBrowsers),
+			CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER: String(browserRunSessionsPerBrowser),
 			VITEST_BENCHMARK_MODE: process.env.VITEST_BENCHMARK_MODE ?? 'browser-run',
 			VITEST_SCENARIO_DELAY_MS: scenarioDelayMs,
 		},
@@ -33,7 +43,13 @@ export default defineConfig({
 			connectTimeout: 180000,
 			headless: true,
 			fileParallelism: true,
-			provider: browserRunCdp(),
+			provider: browserRunCdp({
+				pool: {
+					acquireIntervalMs: browserRunAcquireIntervalMs,
+					maxBrowsers: browserRunMaxBrowsers,
+					sessionsPerBrowser: browserRunSessionsPerBrowser,
+				},
+			}),
 			api: {
 				host: browserApiHost,
 				port: browserApiPort,

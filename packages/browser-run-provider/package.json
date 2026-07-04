@@ -2,7 +2,7 @@
 	"name": "@cloudflare/vitest-browser-run-provider",
 	"version": "0.0.0",
 	"type": "module",
-	"description": "Cloudflare Browser Run connector for Vitest's Playwright browser provider",
+	"description": "Cloudflare Browser Run provider for Vitest Browser Mode with pooled Playwright CDP sessions",
 	"sideEffects": false,
 	"exports": {
 		".": {

@@ -5,6 +5,15 @@ import { createScenarioBootstrap, formatScenarioCurrency, getScenario, type Scen
 
 type ScenarioStatus = 'passed' | 'failed';
 
+interface BrowserRunPoolMetadata {
+	browserLeaseId?: number;
+	browserLeaseIndex?: number;
+	browserRunSessionId?: string;
+	maxBrowsers?: number;
+	sessionId?: string;
+	sessionsPerBrowser?: number | null;
+}
+
 export async function runProductionScenario(id: string): Promise<void> {
 	const scenario = getScenario(id);
 	const bootstrap = createScenarioBootstrap(id);
@@ -28,6 +37,7 @@ export async function runProductionScenario(id: string): Promise<void> {
 	}
 	finally {
 		await writeBenchmarkEvent({
+			browserRunPool: readBrowserRunPoolMetadata(),
 			durationMs: Date.now() - startedAt,
 			endTime: Date.now(),
 			errorMessage,
@@ -91,6 +101,7 @@ function assertScenarioState(scenario: Scenario, bootstrap: ScenarioBootstrap): 
 }
 
 async function writeBenchmarkEvent(event: {
+	browserRunPool: BrowserRunPoolMetadata;
 	durationMs: number;
 	endTime: number;
 	errorMessage: string;
@@ -102,21 +113,49 @@ async function writeBenchmarkEvent(event: {
 }): Promise<void> {
 	const path = `artifacts/benchmark/${event.mode}/events/${event.scenario.id}.json`;
 	await server.commands.writeFile(path, `${JSON.stringify({
+		browserLeaseId: event.browserRunPool.browserLeaseId ?? null,
+		browserLeaseIndex: event.browserRunPool.browserLeaseIndex ?? null,
+		browserRunSessionId: event.browserRunPool.browserRunSessionId ?? null,
 		durationMs: event.durationMs,
 		endTime: event.endTime,
 		errorMessage: event.errorMessage,
 		flags: event.scenario.flags,
 		locale: event.scenario.locale,
+		maxBrowsers: event.browserRunPool.maxBrowsers ?? null,
 		mode: event.mode,
 		provider: server.provider,
 		role: event.scenario.role,
 		scenarioId: event.scenario.id,
+		sessionId: event.browserRunPool.sessionId ?? null,
+		sessionsPerBrowser: event.browserRunPool.sessionsPerBrowser ?? null,
 		startTime: event.startTime,
 		status: event.status,
 		surface: event.scenario.surface,
 		viewport: event.scenario.viewport,
 		workerId: event.workerId,
 	})}\n`);
+}
+
+function readBrowserRunPoolMetadata(): BrowserRunPoolMetadata {
+	const current = readBrowserRunPoolMetadataFrom(globalThis);
+	if (current) {
+		return current;
+	}
+
+	try {
+		if (globalThis.parent && globalThis.parent !== globalThis) {
+			return readBrowserRunPoolMetadataFrom(globalThis.parent) ?? {};
+		}
+	}
+	catch {
+		return {};
+	}
+
+	return {};
+}
+
+function readBrowserRunPoolMetadataFrom(scope: Window | typeof globalThis): BrowserRunPoolMetadata | undefined {
+	return (scope as typeof globalThis & { __CLOUDFLARE_BROWSER_RUN_POOL__?: BrowserRunPoolMetadata }).__CLOUDFLARE_BROWSER_RUN_POOL__;
 }
 
 function getByTestId(testId: string): HTMLElement {
