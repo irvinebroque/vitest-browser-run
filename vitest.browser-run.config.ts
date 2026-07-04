@@ -20,7 +20,9 @@ function loadDotEnv(): void {
 
 export default defineConfig({
 	plugins: [cloudflare({
-		tunnel: 'auto',
+		tunnel: {
+			autoStart: true,
+		},
 	})],
 	server: {
 		host: browserApiHost,

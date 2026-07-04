@@ -47,7 +47,7 @@ sequenceDiagram
   participant BR as Cloudflare Browser Run
   participant Chrome as Hosted Chromium
 
-  CI->>Tunnel: cloudflare({ tunnel: "auto" }) exposes http://127.0.0.1:63315
+  CI->>Tunnel: cloudflare({ tunnel: { autoStart: true } }) exposes http://127.0.0.1:63315
   CI->>Vitest: vitest run --config vitest.browser-run.config.ts
   Tunnel->>Vitest: set CLOUDFLARE_TUNNEL_URL
   Vitest->>Connector: browserRunCdp()
@@ -171,7 +171,7 @@ Known proof constraints:
 
 - Only Chromium can use `connectOverCDPOptions`.
 - The workspace currently depends on the local Vitest fork that contains `connectOverCDPOptions`, `runner.resolveUrl`, `runner.waitForReady`, `contextStrategy`, Browser RPC WebSocket markers, and third-party Vite environment handling.
-- The workspace currently depends on the local Workers SDK fork that contains `@cloudflare/vite-plugin` `tunnel: "auto"`, `tunnel.env`, and `tunnel.onReady`.
+- The workspace currently depends on the local Workers SDK fork that contains `@cloudflare/vite-plugin` default `CLOUDFLARE_TUNNEL_URL` publication, `tunnel.env`, and `tunnel.onReady`.
 - The Browser Run connector does not implement custom Browser Run launch staggering, per-session browser fan-out, or connection retry classification in this Playwright-backed proof shape.
 
 ## Running Locally
@@ -249,7 +249,7 @@ Update visual baselines:
 pnpm test:browser-run:visual:update
 ```
 
-If you already have a public origin for the Vitest browser runner, set it and run the same scripts. The tunnel plugin will skip quick tunnel startup:
+If you already have a public origin for the Vitest browser runner, set it and run the same scripts. `browserRunCdp()` will use it as the runner origin:
 
 ```sh
 export CLOUDFLARE_TUNNEL_URL="https://<your-public-origin>"
@@ -261,7 +261,9 @@ The Vitest config starts the tunnel and configures the provider:
 
 ```ts
 plugins: [cloudflare({
-  tunnel: 'auto',
+  tunnel: {
+    autoStart: true,
+  },
 })],
 test: {
   browser: {
@@ -274,7 +276,7 @@ The Cloudflare Vite plugin starts a quick tunnel for the Vitest browser API serv
 
 No local compatibility plugin is required in this config. The linked Vitest fork marks Browser Mode RPC WebSockets and avoids mutating Cloudflare's Worker Vite environment, so the Cloudflare Vite plugin can own tunnel startup without app-level shims.
 
-Cloudflare quick tunnels intentionally create random `*.trycloudflare.com` hostnames. They are suitable for short-lived CI and demos; set `CLOUDFLARE_TUNNEL_URL` yourself if you want to provide a different public runner origin or skip automatic tunnel startup.
+Cloudflare quick tunnels intentionally create random `*.trycloudflare.com` hostnames. They are suitable for short-lived CI and demos. To skip automatic tunnel startup entirely, provide a public runner origin and set `tunnel.autoStart` to `false` in the Cloudflare Vite plugin config.
 
 ## Visual Regression Flow
 
@@ -318,7 +320,7 @@ Required for Browser Run:
 
 Optional:
 
-- `CLOUDFLARE_TUNNEL_URL` skips automatic quick tunnel startup and uses the provided public runner origin.
+- `CLOUDFLARE_TUNNEL_URL` uses the provided public runner origin. The example config still starts a tunnel because it sets `tunnel.autoStart: true`.
 - `VITEST_BROWSER_PUBLIC_ORIGIN` overrides the public runner origin for Browser Run without affecting the Cloudflare Vite plugin tunnel.
 - `VITEST_BROWSER_API_PORT` changes the local Vitest browser runner port. The default is `63315`.
 - `VITEST_BROWSER_API_HOST` changes the local Vitest browser runner host. The default is `0.0.0.0`.
@@ -370,7 +372,7 @@ The Browser Run package then remains a small connector that converts Cloudflare 
 
 The Workers SDK fork adds:
 
-- `tunnel: "auto"` for automatically starting a tunnel when `CLOUDFLARE_TUNNEL_URL` is not already set.
+- Default `CLOUDFLARE_TUNNEL_URL` publication when a tunnel is auto-started and `tunnel.env` is omitted.
 - `tunnel.env` for publishing the primary tunnel URL to one or more environment variables.
 - `tunnel.onReady` for structured tunnel metadata, including every URL from a named tunnel.
 
