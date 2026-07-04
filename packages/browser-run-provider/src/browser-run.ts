@@ -9,8 +9,9 @@ const browserRunPublicOriginEnv = 'VITEST_BROWSER_PUBLIC_ORIGIN';
 const cloudflareTunnelUrlEnv = 'CLOUDFLARE_TUNNEL_URL';
 const cloudflareAccountIdEnv = 'CLOUDFLARE_ACCOUNT_ID';
 const cloudflareApiTokenEnv = 'CLOUDFLARE_API_TOKEN';
-const legacyCloudflareAccountIdEnv = 'CF_ACCOUNT_ID';
-const legacyCloudflareApiTokenEnv = 'CF_API_TOKEN';
+const cloudflareBrowserRunWsEndpointEnv = 'CLOUDFLARE_BROWSER_RUN_WS_ENDPOINT';
+const cloudflareBrowserRunKeepAliveMsEnv = 'CLOUDFLARE_BROWSER_RUN_KEEP_ALIVE_MS';
+const cloudflareBrowserRunRecordingEnv = 'CLOUDFLARE_BROWSER_RUN_RECORDING';
 
 export type BrowserRunCdpConnectOptions = NonNullable<PlaywrightProviderOptions['connectOverCDPOptions']>;
 
@@ -72,12 +73,12 @@ export function createBrowserRunCdpConnection(options: ResolvedBrowserRunCdpOpti
 
 export function resolveBrowserRunCdpOptions(options: BrowserRunCdpOptions): ResolvedBrowserRunCdpOptions {
 	return {
-		accountId: options.accountId ?? process.env[cloudflareAccountIdEnv] ?? process.env[legacyCloudflareAccountIdEnv] ?? '',
-		apiToken: options.apiToken ?? process.env[cloudflareApiTokenEnv] ?? process.env[legacyCloudflareApiTokenEnv] ?? '',
-		wsEndpoint: options.wsEndpoint ?? process.env.CF_BROWSER_RUN_WS_ENDPOINT ?? '',
+		accountId: options.accountId ?? process.env[cloudflareAccountIdEnv] ?? '',
+		apiToken: options.apiToken ?? process.env[cloudflareApiTokenEnv] ?? '',
+		wsEndpoint: options.wsEndpoint ?? process.env[cloudflareBrowserRunWsEndpointEnv] ?? '',
 		publicOrigin: options.publicOrigin ?? process.env[browserRunPublicOriginEnv] ?? process.env[cloudflareTunnelUrlEnv] ?? '',
-		keepAliveMs: options.keepAliveMs ?? readNumber(process.env.CF_BROWSER_RUN_KEEP_ALIVE_MS, 600000, 'CF_BROWSER_RUN_KEEP_ALIVE_MS'),
-		recording: options.recording ?? readBoolean(process.env.CF_BROWSER_RUN_RECORDING, false, 'CF_BROWSER_RUN_RECORDING'),
+		keepAliveMs: options.keepAliveMs ?? readNumber(process.env[cloudflareBrowserRunKeepAliveMsEnv], 600000, cloudflareBrowserRunKeepAliveMsEnv),
+		recording: options.recording ?? readBoolean(process.env[cloudflareBrowserRunRecordingEnv], false, cloudflareBrowserRunRecordingEnv),
 	};
 }
 
@@ -99,7 +100,7 @@ export function getBrowserRunWsEndpoint(options: Pick<ResolvedBrowserRunCdpOptio
 	if (!options.accountId) {
 		throw new Error(
 			`Missing ${cloudflareAccountIdEnv}. Set ${cloudflareAccountIdEnv} in .env or your shell before running Browser Run tests. `
-			+ `You can also pass accountId to browserRunCdp(), set ${legacyCloudflareAccountIdEnv} as a legacy alias, or set CF_BROWSER_RUN_WS_ENDPOINT to bypass account-scoped URL construction.`,
+			+ `You can also pass accountId to browserRunCdp() or set ${cloudflareBrowserRunWsEndpointEnv} to bypass account-scoped URL construction.`,
 		);
 	}
 
@@ -117,7 +118,7 @@ export function getBrowserRunApiToken(options: Pick<ResolvedBrowserRunCdpOptions
 	if (!options.apiToken) {
 		throw new Error(
 			`Missing ${cloudflareApiTokenEnv}. Set ${cloudflareApiTokenEnv} in .env or your shell before running Browser Run tests. `
-			+ `The token needs Browser Rendering - Edit permission. You can also pass apiToken to browserRunCdp() or set ${legacyCloudflareApiTokenEnv} as a legacy alias.`,
+			+ 'The token needs Browser Rendering - Edit permission. You can also pass apiToken to browserRunCdp().',
 		);
 	}
 

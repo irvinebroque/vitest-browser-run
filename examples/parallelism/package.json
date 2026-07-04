@@ -1,0 +1,32 @@
+{
+	"name": "@vitest-browser-run/parallelism-example",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build:provider": "pnpm --filter @cloudflare/vitest-browser-run-provider build",
+		"build": "vite build",
+		"deploy": "pnpm build && wrangler deploy",
+		"dev": "vite dev",
+		"preview": "pnpm build && vite preview",
+		"start": "vite dev",
+		"test:browser-run": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts",
+		"test:browser-run:parallel": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts test/browser/parallel-slot-*.browser.test.ts",
+		"test:browser-run:visual": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts",
+		"test:browser-run:visual:update": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts --update",
+		"typecheck": "pnpm build:provider && tsc --noEmit --project tsconfig.json && tsc --noEmit --project test/browser/tsconfig.json",
+		"cf-typegen": "wrangler types"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-browser-run-provider": "workspace:*",
+		"@cloudflare/vite-plugin": "link:../../../workers-sdk-vite-tunnel-programmatic-url/packages/vite-plugin-cloudflare",
+		"@types/node": "26.1.0",
+		"@vitest/browser": "link:../../../vitest/packages/browser",
+		"@vitest/browser-playwright": "link:../../../vitest/packages/browser-playwright",
+		"playwright": "npm:playwright-core@1.61.1",
+		"typescript": "5.9.3",
+		"vite": "8.1.2",
+		"vitest": "link:../../../vitest/packages/vitest",
+		"wrangler": "4.106.0"
+	}
+}

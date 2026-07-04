@@ -10,11 +10,14 @@ loadDotEnv();
 
 const browserApiHost = process.env.VITEST_BROWSER_API_HOST ?? '0.0.0.0';
 const browserApiPort = Number(process.env.VITEST_BROWSER_API_PORT ?? '63315');
-const browserRunConcurrency = Number(process.env.CF_BROWSER_RUN_CONCURRENCY ?? process.env.VITEST_MAX_WORKERS ?? '4');
+const browserRunConcurrency = Number(process.env.CLOUDFLARE_BROWSER_RUN_CONCURRENCY ?? process.env.VITEST_MAX_WORKERS ?? '8');
 
 function loadDotEnv(): void {
-	if (existsSync('.env')) {
-		loadEnvFile('.env');
+	for (const envPath of ['.env', '../../.env']) {
+		if (existsSync(envPath)) {
+			loadEnvFile(envPath);
+			return;
+		}
 	}
 }
 

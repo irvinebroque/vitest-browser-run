@@ -1,36 +1,23 @@
 {
-	"name": "@vitest-browser-run/example-worker",
+	"name": "vitest-browser-run-workspace",
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
 	"packageManager": "pnpm@10.26.1",
 	"scripts": {
 		"build:provider": "pnpm --filter @cloudflare/vitest-browser-run-provider build",
-		"build": "vite build",
-		"deploy": "pnpm build && wrangler deploy",
-		"dev": "vite dev",
-		"preview": "pnpm build && vite preview",
-		"start": "vite dev",
+		"build:example": "pnpm --filter @vitest-browser-run/parallelism-example build",
+		"dev": "pnpm --filter @vitest-browser-run/parallelism-example dev",
+		"start": "pnpm dev",
 		"test": "pnpm --filter @cloudflare/vitest-browser-run-provider test",
-		"test:worker": "vitest run --config vitest.config.ts",
-		"test:browser-run": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts",
-		"test:browser-run:visual": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts",
-		"test:browser-run:visual:update": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts --update",
-		"typecheck": "pnpm build:provider && tsc --noEmit --project tsconfig.json && tsc --noEmit --project test/tsconfig.json && tsc --noEmit --project test/browser/tsconfig.json && pnpm --filter @cloudflare/vitest-browser-run-provider typecheck",
-		"test:watch": "vitest --config vitest.config.ts",
-		"cf-typegen": "wrangler types"
+		"test:browser-run": "pnpm --filter @vitest-browser-run/parallelism-example test:browser-run",
+		"test:browser-run:parallel": "pnpm --filter @vitest-browser-run/parallelism-example test:browser-run:parallel",
+		"test:browser-run:visual": "pnpm --filter @vitest-browser-run/parallelism-example test:browser-run:visual",
+		"test:browser-run:visual:update": "pnpm --filter @vitest-browser-run/parallelism-example test:browser-run:visual:update",
+		"typecheck": "pnpm --filter @cloudflare/vitest-browser-run-provider typecheck && pnpm --filter @vitest-browser-run/parallelism-example typecheck",
+		"cf-typegen": "pnpm --filter @vitest-browser-run/parallelism-example cf-typegen"
 	},
 	"devDependencies": {
-		"@cloudflare/vitest-browser-run-provider": "workspace:*",
-		"@cloudflare/vite-plugin": "link:../workers-sdk-vite-tunnel-programmatic-url/packages/vite-plugin-cloudflare",
-		"@cloudflare/vitest-pool-workers": "0.17.0",
-		"@types/node": "26.1.0",
-		"@vitest/browser": "link:../vitest/packages/browser",
-		"@vitest/browser-playwright": "link:../vitest/packages/browser-playwright",
-		"playwright": "npm:playwright-core@1.61.1",
-		"typescript": "5.9.3",
-		"vite": "8.1.2",
-		"vitest": "link:../vitest/packages/vitest",
-		"wrangler": "4.106.0"
+		"vite": "8.1.2"
 	}
 }

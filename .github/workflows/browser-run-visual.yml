@@ -1,4 +1,4 @@
-name: Browser Run Visual Tests
+name: Browser Run Example Tests
 
 on:
   pull_request:
@@ -10,14 +10,14 @@ permissions:
   contents: read
 
 jobs:
-  visual:
-    name: Vitest visual suite on Browser Run
+  browser-run:
+    name: Massive parallelism example on Browser Run
     runs-on: ubuntu-24.04
     env:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
-      CF_BROWSER_RUN_CONCURRENCY: '4'
-      CF_BROWSER_RUN_RECORDING: 'true'
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_BROWSER_RUN_CONCURRENCY: '8'
+      CLOUDFLARE_BROWSER_RUN_RECORDING: 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -40,16 +40,18 @@ jobs:
             exit 1
           fi
           printf '%s\n' 'Using Cloudflare Browser Run; this workflow intentionally does not install Playwright browsers.'
+          printf '%s\n' 'The example runs 8 Vitest browser workers against one shared hosted Chromium session.'
 
-      - name: Vitest visual regression on Browser Run
-        run: pnpm test:browser-run:visual
+      - name: Vitest parallelism example on Browser Run
+        run: pnpm test:browser-run
 
-      - name: Upload visual artifacts
+      - name: Upload browser test artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: vitest-browser-run-visual-artifacts
+          name: vitest-browser-run-example-artifacts
           if-no-files-found: ignore
           path: |
-            test/browser/**/__screenshots__/**
+            examples/parallelism/test/browser/**/__screenshots__/**
+            examples/parallelism/.vitest-attachments/**
             .vitest-attachments/**

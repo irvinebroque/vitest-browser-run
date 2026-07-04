@@ -31,6 +31,7 @@
 		"@vitest/browser-playwright": "link:../../../vitest/packages/browser-playwright",
 		"playwright": "npm:playwright-core@1.61.1",
 		"typescript": "5.9.3",
+		"vite": "8.1.2",
 		"vitest": "link:../../../vitest/packages/vitest"
 	}
 }
