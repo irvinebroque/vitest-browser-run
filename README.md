@@ -13,6 +13,28 @@ This proof is wired to two pending upstream PRs. `irvinebroque/vitest#1` adds a 
 
 The Worker application itself does not call Browser Run. Browser Run is only used as the browser infrastructure for Vitest Browser Mode.
 
+## What This Package Does
+
+`@vitest-browser-run/browser-run-provider` is now a connector, not a full Vitest Browser Mode provider.
+
+It owns:
+
+- Browser Run CDP URL construction.
+- Browser Run authorization headers.
+- Browser Run env/default handling for account ID, API token, keep-alive, recording, and endpoint overrides.
+- Local Vitest runner URL rewriting through `VITEST_BROWSER_PUBLIC_ORIGIN`.
+- The Browser Run-specific `contextStrategy: 'reuse-default-on-failure'` choice for CDP sessions.
+
+It does not own:
+
+- Playwright browser/page/context lifecycle.
+- Vitest browser commands.
+- Screenshot, viewport, user-event, tracing, or module mocking behavior.
+- Tunnel startup.
+- Browser lifecycle retries or fan-out.
+
+Those responsibilities live in `@vitest/browser-playwright` and `@cloudflare/vite-plugin`. The Browser Run package only converts Cloudflare Browser Run configuration into the upstream Playwright provider shape.
+
 ## Mechanical Overview
 
 ```mermaid
@@ -59,7 +81,7 @@ The key detail is that the browser is remote but the Vitest browser runner is lo
 - `test/browser/visual-*.browser.test.ts` contains the visual regression tests.
 - `test/browser/__screenshots__/**` contains committed Vitest screenshot baselines.
 
-## Provider Shape
+## Connector Shape
 
 `@vitest-browser-run/browser-run-provider` is intentionally small. It does not implement a generic Vitest Browser Mode provider anymore.
 
@@ -114,7 +136,7 @@ Because these are normal Browser Run CDP sessions, active sessions can also be i
 
 There is no `browser` binding in `wrangler.jsonc` because this demo does not launch Browser Run from inside a deployed Worker. It connects from Node.js/Vitest to Browser Run's CDP WebSocket, matching Cloudflare's CDP docs for external clients.
 
-## Why A Provider Is Needed
+## Why Playwright Needs CDP Hooks
 
 Browser Run exposes a standard Chromium CDP WebSocket. Vitest Browser Mode, however, needs more than a WebSocket URL.
 
@@ -127,7 +149,7 @@ The provider layer has to:
 - Register Vitest browser commands used by the tests and matchers.
 - Return screenshot buffers and paths to Vitest so Vitest still owns baseline matching.
 
-The local Vitest fork proves those provider-layer capabilities belong in `@vitest/browser-playwright`. Browser Run only supplies `connectOverCDPOptions` and runner URL behavior.
+The local Vitest fork proves those provider-layer capabilities belong in `@vitest/browser-playwright`. Browser Run only supplies product-specific `connectOverCDPOptions` and runner URL behavior.
 
 ## Why Not `@cloudflare/playwright`
 
