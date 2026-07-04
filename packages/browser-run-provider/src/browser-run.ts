@@ -6,6 +6,7 @@ import { readBoolean, readNumber } from './env.js';
 import { resolveBrowserRunnerUrl, waitForLocalBrowserRunner } from './runner-origin.js';
 
 const browserRunPublicOriginEnv = 'VITEST_BROWSER_PUBLIC_ORIGIN';
+const cloudflareTunnelUrlEnv = 'CLOUDFLARE_TUNNEL_URL';
 
 export type BrowserRunCdpConnectOptions = NonNullable<PlaywrightProviderOptions['connectOverCDPOptions']>;
 
@@ -53,7 +54,7 @@ async function waitForBrowserRunPublicOrigin(options: BrowserRunCdpOptions): Pro
 }
 
 function getBrowserRunPublicOrigin(options: BrowserRunCdpOptions): string {
-	return options.publicOrigin ?? process.env[browserRunPublicOriginEnv] ?? '';
+	return options.publicOrigin ?? process.env[browserRunPublicOriginEnv] ?? process.env[cloudflareTunnelUrlEnv] ?? '';
 }
 
 export function createBrowserRunCdpConnection(options: ResolvedBrowserRunCdpOptions): BrowserRunCdpConnectOptions {
@@ -68,7 +69,7 @@ export function resolveBrowserRunCdpOptions(options: BrowserRunCdpOptions): Reso
 		accountId: options.accountId ?? process.env.CF_ACCOUNT_ID ?? process.env.CLOUDFLARE_ACCOUNT_ID ?? '',
 		apiToken: options.apiToken ?? process.env.CF_API_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN ?? '',
 		wsEndpoint: options.wsEndpoint ?? process.env.CF_BROWSER_RUN_WS_ENDPOINT ?? '',
-		publicOrigin: options.publicOrigin ?? process.env[browserRunPublicOriginEnv] ?? '',
+		publicOrigin: options.publicOrigin ?? process.env[browserRunPublicOriginEnv] ?? process.env[cloudflareTunnelUrlEnv] ?? '',
 		keepAliveMs: options.keepAliveMs ?? readNumber(process.env.CF_BROWSER_RUN_KEEP_ALIVE_MS, 600000, 'CF_BROWSER_RUN_KEEP_ALIVE_MS'),
 		recording: options.recording ?? readBoolean(process.env.CF_BROWSER_RUN_RECORDING, false, 'CF_BROWSER_RUN_RECORDING'),
 	};
@@ -77,7 +78,7 @@ export function resolveBrowserRunCdpOptions(options: BrowserRunCdpOptions): Reso
 export function resolveBrowserRunRunnerUrl(url: string, publicOrigin: string): string {
 	if (!publicOrigin) {
 		throw new Error(
-			`Missing ${browserRunPublicOriginEnv}. Browser Run cannot reach localhost; expose Vitest's browser API with a tunnel and set its public origin.`,
+			`Missing ${browserRunPublicOriginEnv} or ${cloudflareTunnelUrlEnv}. Browser Run cannot reach localhost; expose Vitest's browser API with a tunnel and set its public origin.`,
 		);
 	}
 
