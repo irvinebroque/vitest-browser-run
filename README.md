@@ -105,25 +105,32 @@ Run only the visual suite:
 pnpm test:browser-run:visual
 ```
 
-Run the large-app Browser Run benchmark:
+Run the large-app multi-browser Browser Run benchmark:
 
 ```sh
 pnpm bench:browser-run
 ```
 
-Run a larger temporary benchmark profile with four Browser Run sessions:
+Run the same benchmark constrained to one hosted Browser Run browser:
+
+```sh
+pnpm bench:browser-run:single
+```
+
+Run a larger temporary comparison with the same per-browser concurrency in local and Browser Run modes:
 
 ```sh
 BENCHMARK_PROFILE=large \
+BENCHMARK_CONCURRENCY=4 \
 CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=4 \
-CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=4 \
-CLOUDFLARE_BROWSER_RUN_CONCURRENCY=16 \
-pnpm bench:browser-run
+pnpm bench:compare
 ```
+
+This compares local Chrome with one browser and four workers, Browser Run with one hosted browser and four pages/contexts, and Browser Run with four hosted browsers and four pages/contexts per browser.
 
 Supported profiles are `default` (96 scenarios), `full` (192), `large` (384), `xlarge` (768), and `stress` (1536). `BENCHMARK_SCENARIO_COUNT=<n>` overrides the profile size.
 
-Compare local serial, local parallel, and Browser Run parallel runs:
+Compare fair parallel modes:
 
 ```sh
 pnpm bench:compare
@@ -144,9 +151,7 @@ Set Browser Run credentials in either `examples/parallelism/.env`, the repo-root
 ```sh
 CLOUDFLARE_ACCOUNT_ID="<account-id>"
 CLOUDFLARE_API_TOKEN="<token-with-browser-rendering-edit>"
-CLOUDFLARE_BROWSER_RUN_CONCURRENCY="8"
-CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="2"
-CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER="4"
+CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="4"
 ```
 
 `CLOUDFLARE_API_TOKEN` must have Browser Rendering - Edit permission. The committed example file is `examples/parallelism/.env.example`; real `.env` files stay ignored.

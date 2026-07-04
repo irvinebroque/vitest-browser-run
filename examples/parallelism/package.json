@@ -17,8 +17,9 @@
 		"test:browser-run:visual:update": "pnpm build:provider && vitest run --config vitest.browser-run.config.ts test/browser/visual-*.browser.test.ts --update",
 		"bench:local:serial": "node scripts/run-benchmark.mjs local-serial",
 		"bench:local:parallel": "node scripts/run-benchmark.mjs local-parallel",
+		"bench:browser-run:single": "node scripts/run-benchmark.mjs browser-run-single",
 		"bench:browser-run": "node scripts/run-benchmark.mjs browser-run",
-		"bench:compare": "node scripts/run-benchmark.mjs local-serial local-parallel browser-run",
+		"bench:compare": "node scripts/run-benchmark.mjs local-parallel browser-run-single browser-run",
 		"bench:report": "node scripts/write-benchmark-report.mjs",
 		"typecheck": "pnpm build:provider && tsc --noEmit --project tsconfig.json && tsc --noEmit --project test/browser/tsconfig.json",
 		"cf-typegen": "wrangler types"

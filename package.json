@@ -16,6 +16,7 @@
 		"test:browser-run:visual:update": "pnpm --filter @vitest-browser-run/parallelism-example test:browser-run:visual:update",
 		"bench:local:serial": "pnpm --filter @vitest-browser-run/parallelism-example bench:local:serial",
 		"bench:local:parallel": "pnpm --filter @vitest-browser-run/parallelism-example bench:local:parallel",
+		"bench:browser-run:single": "pnpm --filter @vitest-browser-run/parallelism-example bench:browser-run:single",
 		"bench:browser-run": "pnpm --filter @vitest-browser-run/parallelism-example bench:browser-run",
 		"bench:compare": "pnpm --filter @vitest-browser-run/parallelism-example bench:compare",
 		"typecheck": "pnpm --filter @cloudflare/vitest-browser-run-provider typecheck && pnpm --filter @vitest-browser-run/parallelism-example typecheck",

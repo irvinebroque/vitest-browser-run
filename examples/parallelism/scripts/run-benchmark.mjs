@@ -8,15 +8,25 @@ import { writeBenchmarkReport } from './write-benchmark-report.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const artifactRoot = join(root, 'artifacts/benchmark');
+const benchmarkConcurrency = readBenchmarkConcurrency();
+const browserRunBenchmarkBrowsers = readPositiveIntegerEnv('CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS', 4);
 
 const modeConfigs = {
 	'browser-run': {
 		config: 'vitest.browser-run.benchmark.config.ts',
+		env: () => browserRunModeEnv(browserRunBenchmarkBrowsers),
 		mode: 'browser-run',
+		prepare: true,
+	},
+	'browser-run-single': {
+		config: 'vitest.browser-run.benchmark.config.ts',
+		env: () => browserRunModeEnv(1),
+		mode: 'browser-run-single',
 		prepare: true,
 	},
 	'local-parallel': {
 		config: 'vitest.local.parallel.config.ts',
+		env: () => ({ BENCHMARK_CONCURRENCY: String(benchmarkConcurrency) }),
 		mode: 'local-parallel',
 		prepare: false,
 	},
@@ -27,7 +37,7 @@ const modeConfigs = {
 	},
 };
 
-const modes = process.argv.slice(2).length ? process.argv.slice(2) : ['local-serial', 'local-parallel', 'browser-run'];
+const modes = process.argv.slice(2).length ? process.argv.slice(2) : ['local-parallel', 'browser-run-single', 'browser-run'];
 const failures = [];
 const scenarioGenerationEnv = getScenarioGenerationEnv();
 let shouldRestoreScenarios = false;
@@ -53,6 +63,11 @@ try {
 	for (const mode of modes) {
 		const config = modeConfigs[mode];
 		await rm(join(artifactRoot, mode), { force: true, recursive: true });
+		const childEnv = {
+			...process.env,
+			...config.env?.(),
+			VITEST_BENCHMARK_MODE: config.mode,
+		};
 
 		if (config.prepare) {
 			await run('pnpm', ['build:provider'], { mode });
@@ -65,10 +80,7 @@ try {
 
 		try {
 			await run('pnpm', ['exec', 'vitest', 'run', '--config', config.config], {
-				env: {
-					...process.env,
-					VITEST_BENCHMARK_MODE: config.mode,
-				},
+				env: childEnv,
 				mode,
 			});
 		}
@@ -80,6 +92,9 @@ try {
 
 		await mkdir(join(artifactRoot, mode), { recursive: true });
 		await writeFile(join(artifactRoot, mode, 'metadata.json'), `${JSON.stringify({
+			benchmarkConcurrency: childEnv.BENCHMARK_CONCURRENCY ?? '',
+			browserRunMaxBrowsers: childEnv.CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS ?? '',
+			browserRunSessionsPerBrowser: childEnv.CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER ?? '',
 			endedAt: Date.now(),
 			errorMessage,
 			mode,
@@ -145,6 +160,37 @@ function formatDuration(ms) {
 
 function formatCount(value) {
 	return value ? String(value) : 'n/a';
+}
+
+function browserRunModeEnv(maxBrowsers) {
+	return {
+		BENCHMARK_CONCURRENCY: String(benchmarkConcurrency),
+		CLOUDFLARE_BROWSER_RUN_CONCURRENCY: String(maxBrowsers * benchmarkConcurrency),
+		CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS: String(maxBrowsers),
+		CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER: String(benchmarkConcurrency),
+	};
+}
+
+function readBenchmarkConcurrency() {
+	if (process.env.BENCHMARK_CONCURRENCY) {
+		return readPositiveIntegerEnv('BENCHMARK_CONCURRENCY', 4);
+	}
+
+	return readPositiveIntegerEnv('VITEST_MAX_WORKERS', 4);
+}
+
+function readPositiveIntegerEnv(name, fallback) {
+	const value = process.env[name];
+	if (!value) {
+		return fallback;
+	}
+
+	const number = Number(value);
+	if (!Number.isInteger(number) || number < 1) {
+		throw new Error(`Invalid ${name}: expected a positive integer, got ${JSON.stringify(value)}.`);
+	}
+
+	return number;
 }
 
 function getScenarioGenerationEnv() {

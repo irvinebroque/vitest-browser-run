@@ -93,31 +93,31 @@ Lower the worker count without changing test code:
 CLOUDFLARE_BROWSER_RUN_CONCURRENCY=2 pnpm test:browser-run:parallel
 ```
 
-Run the default 96-scenario Browser Run benchmark:
+Run the default 96-scenario multi-browser Browser Run benchmark:
 
 ```sh
 pnpm bench:browser-run
 ```
 
-The Browser Run benchmark defaults to two hosted browsers with four Vitest sessions per browser:
+Run the same Browser Run benchmark constrained to one hosted browser:
 
 ```sh
-CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=2
-CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=4
-CLOUDFLARE_BROWSER_RUN_CONCURRENCY=8
+pnpm bench:browser-run:single
 ```
+
+Benchmark comparison modes share `BENCHMARK_CONCURRENCY`, which defaults to `4` and means max sessions per browser. In `browser-run-single`, the runner sets one hosted browser with `BENCHMARK_CONCURRENCY` sessions. In `browser-run`, the runner sets `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS` hosted browsers with `BENCHMARK_CONCURRENCY` sessions per browser.
 
 Run a larger app-shaped benchmark without committing the generated scenario files:
 
 ```sh
-BENCHMARK_PROFILE=large pnpm bench:local:parallel
 BENCHMARK_PROFILE=large \
+BENCHMARK_CONCURRENCY=4 \
 CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=4 \
-CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=4 \
-CLOUDFLARE_BROWSER_RUN_CONCURRENCY=16 \
 CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS=1000 \
-pnpm bench:browser-run
+pnpm bench:compare
 ```
+
+That compares local Chrome with one browser and four workers, Browser Run with one hosted browser and four pages/contexts, and Browser Run with four hosted browsers and four pages/contexts per browser.
 
 Profiles:
 
@@ -136,11 +136,13 @@ pnpm bench:local:serial
 pnpm bench:local:parallel
 ```
 
-Compare all modes in one command:
+Compare fair parallel modes in one command:
 
 ```sh
 pnpm bench:compare
 ```
+
+`bench:compare` runs `local-parallel`, `browser-run-single`, and `browser-run`. `bench:local:serial` remains available as a baseline, but it is not part of the default comparison because its worker cap intentionally differs.
 
 The local modes use system Chrome by default. Override the channel if your local browser is different:
 
@@ -161,9 +163,7 @@ Create `.env` in this directory or at the repo root:
 ```sh
 CLOUDFLARE_ACCOUNT_ID="<account-id>"
 CLOUDFLARE_API_TOKEN="<token-with-browser-rendering-edit>"
-CLOUDFLARE_BROWSER_RUN_CONCURRENCY="8"
-CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="2"
-CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER="4"
+CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="4"
 ```
 
 The token needs Browser Rendering - Edit permission.
@@ -171,13 +171,11 @@ The token needs Browser Rendering - Edit permission.
 Optional benchmark controls:
 
 ```sh
-CLOUDFLARE_BROWSER_RUN_CONCURRENCY="8"
-CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="2"
-CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER="4"
+BENCHMARK_CONCURRENCY="4"
+CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="4"
 CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS="1000"
 BENCHMARK_PROFILE="large"
 BENCHMARK_SCENARIO_COUNT="384"
-LOCAL_BROWSER_CONCURRENCY="4"
 VITEST_SCENARIO_DELAY_MS="2200"
 ```
 

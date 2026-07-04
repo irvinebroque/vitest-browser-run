@@ -136,6 +136,7 @@ async function writeBenchmarkEvent(event: {
 }): Promise<void> {
 	const path = `artifacts/benchmark/${event.mode}/events/${event.scenario.id}.json`;
 	await server.commands.writeFile(path, `${JSON.stringify({
+		benchmarkConcurrency: readNumberMetaEnv('BENCHMARK_CONCURRENCY', 0) || null,
 		browserLeaseId: event.browserRunPool.browserLeaseId ?? null,
 		browserLeaseIndex: event.browserRunPool.browserLeaseIndex ?? null,
 		browserRunSessionId: event.browserRunPool.browserRunSessionId ?? null,
