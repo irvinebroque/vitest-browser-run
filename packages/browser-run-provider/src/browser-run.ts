@@ -1,11 +1,13 @@
 import type { BrowserProviderOption } from 'vitest/node';
 
-import { browserCdp, type BrowserCdpConnectOptions, type BrowserCdpOptions } from './browser-cdp.js';
+import { playwright, type PlaywrightProviderOptions } from '@vitest/browser-playwright';
+
 import { readBoolean, readNumber } from './env.js';
 import { resolveBrowserRunnerUrl, waitForLocalBrowserRunner } from './runner-origin.js';
 
-const cdpConnectAttempts = 3;
 const browserRunPublicOriginEnv = 'VITEST_BROWSER_PUBLIC_ORIGIN';
+
+export type BrowserRunCdpConnectOptions = NonNullable<PlaywrightProviderOptions['connectOverCDPOptions']>;
 
 export interface BrowserRunCdpOptions {
 	accountId?: string;
@@ -14,34 +16,47 @@ export interface BrowserRunCdpOptions {
 	publicOrigin?: string;
 	keepAliveMs?: number;
 	recording?: boolean;
-	browserPerSession?: boolean;
-	launchDelayMs?: number;
-	logSessions?: boolean;
 }
 
 export interface ResolvedBrowserRunCdpOptions extends Required<BrowserRunCdpOptions> {}
 
 export function browserRunCdp(options: BrowserRunCdpOptions = {}): BrowserProviderOption {
-	return browserCdp({
-		name: 'browser-run-cdp',
+	const resolvedOptions = resolveBrowserRunCdpOptions(options);
+
+	return playwright({
+		connectOverCDPOptions: createBrowserRunCdpConnection(resolvedOptions),
 		runner: {
-			resolveUrl: ({ url }) => resolveBrowserRunRunnerUrl(url, resolveBrowserRunCdpOptions(options).publicOrigin),
-			waitForReady: ({ url }) => waitForLocalBrowserRunner(url),
+			resolveUrl: ({ url }) => resolveBrowserRunRunnerUrl(url, getBrowserRunPublicOrigin(options)),
+			waitForReady: ({ url }) => waitForBrowserRunRunnerReady(url, options),
 		},
-		browserPerSession: options.browserPerSession ?? readBoolean(process.env.CF_BROWSER_RUN_BROWSER_PER_SESSION, true, 'CF_BROWSER_RUN_BROWSER_PER_SESSION'),
-		launchDelayMs: options.launchDelayMs ?? readNumber(process.env.CF_BROWSER_RUN_LAUNCH_DELAY_MS, 1100, 'CF_BROWSER_RUN_LAUNCH_DELAY_MS'),
-		logSessions: options.logSessions ?? readBoolean(process.env.CF_BROWSER_RUN_LOG_SESSIONS, true, 'CF_BROWSER_RUN_LOG_SESSIONS'),
 		contextStrategy: 'reuse-default-on-failure',
-		connectRetry: {
-			attempts: cdpConnectAttempts,
-			shouldRetry: isTransientBrowserRunCdpConnectError,
-			delayMs: (attempt) => Math.min(attempt * 2000, 5000),
-		},
-		connect: () => createBrowserRunCdpConnection(resolveBrowserRunCdpOptions(options)),
-	} satisfies BrowserCdpOptions);
+	} satisfies PlaywrightProviderOptions);
 }
 
-export function createBrowserRunCdpConnection(options: ResolvedBrowserRunCdpOptions): BrowserCdpConnectOptions {
+async function waitForBrowserRunRunnerReady(url: string, options: BrowserRunCdpOptions): Promise<void> {
+	await waitForLocalBrowserRunner(url);
+	await waitForBrowserRunPublicOrigin(options);
+	await waitForLocalBrowserRunner(url, { attempts: 120, intervalMs: 500 });
+}
+
+async function waitForBrowserRunPublicOrigin(options: BrowserRunCdpOptions): Promise<string> {
+	for (let attempt = 1; attempt <= 120; attempt += 1) {
+		const publicOrigin = getBrowserRunPublicOrigin(options);
+		if (publicOrigin) {
+			return publicOrigin;
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, 250));
+	}
+
+	return getBrowserRunPublicOrigin(options);
+}
+
+function getBrowserRunPublicOrigin(options: BrowserRunCdpOptions): string {
+	return options.publicOrigin ?? process.env[browserRunPublicOriginEnv] ?? '';
+}
+
+export function createBrowserRunCdpConnection(options: ResolvedBrowserRunCdpOptions): BrowserRunCdpConnectOptions {
 	return {
 		wsEndpoint: getBrowserRunWsEndpoint(options),
 		headers: { Authorization: `Bearer ${getBrowserRunApiToken(options)}` },
@@ -53,12 +68,9 @@ export function resolveBrowserRunCdpOptions(options: BrowserRunCdpOptions): Reso
 		accountId: options.accountId ?? process.env.CF_ACCOUNT_ID ?? process.env.CLOUDFLARE_ACCOUNT_ID ?? '',
 		apiToken: options.apiToken ?? process.env.CF_API_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN ?? '',
 		wsEndpoint: options.wsEndpoint ?? process.env.CF_BROWSER_RUN_WS_ENDPOINT ?? '',
-		publicOrigin: options.publicOrigin ?? process.env.VITEST_BROWSER_PUBLIC_ORIGIN ?? '',
+		publicOrigin: options.publicOrigin ?? process.env[browserRunPublicOriginEnv] ?? '',
 		keepAliveMs: options.keepAliveMs ?? readNumber(process.env.CF_BROWSER_RUN_KEEP_ALIVE_MS, 600000, 'CF_BROWSER_RUN_KEEP_ALIVE_MS'),
 		recording: options.recording ?? readBoolean(process.env.CF_BROWSER_RUN_RECORDING, false, 'CF_BROWSER_RUN_RECORDING'),
-		browserPerSession: options.browserPerSession ?? readBoolean(process.env.CF_BROWSER_RUN_BROWSER_PER_SESSION, true, 'CF_BROWSER_RUN_BROWSER_PER_SESSION'),
-		launchDelayMs: options.launchDelayMs ?? readNumber(process.env.CF_BROWSER_RUN_LAUNCH_DELAY_MS, 1100, 'CF_BROWSER_RUN_LAUNCH_DELAY_MS'),
-		logSessions: options.logSessions ?? readBoolean(process.env.CF_BROWSER_RUN_LOG_SESSIONS, true, 'CF_BROWSER_RUN_LOG_SESSIONS'),
 	};
 }
 
@@ -97,16 +109,4 @@ export function getBrowserRunApiToken(options: Pick<ResolvedBrowserRunCdpOptions
 	}
 
 	return options.apiToken;
-}
-
-export function isTransientBrowserRunCdpConnectError(error: unknown): boolean {
-	const message = String(error);
-	return (
-		message.includes('410 Gone')
-		|| message.includes('Browser not running')
-		|| message.includes('state: unhealthy')
-		|| message.includes('WebSocket was closed before the connection was established')
-		|| message.includes('ECONNRESET')
-		|| message.includes('ETIMEDOUT')
-	);
 }

@@ -2,7 +2,7 @@
 	"name": "@vitest-browser-run/browser-run-provider",
 	"version": "0.0.0",
 	"type": "module",
-	"description": "Generic Vitest Browser Mode provider for Chromium CDP with a Cloudflare Browser Run connector",
+	"description": "Cloudflare Browser Run connector for Vitest's Playwright browser provider",
 	"sideEffects": false,
 	"exports": {
 		".": {
@@ -22,15 +22,15 @@
 		"typecheck": "tsc --noEmit --project tsconfig.json && tsc --noEmit --project test/tsconfig.json"
 	},
 	"peerDependencies": {
-		"@vitest/browser": "^4.1.9",
-		"playwright-core": "^1.61.1",
-		"vitest": "^4.1.9"
+		"@vitest/browser-playwright": "^5.0.0-beta.5",
+		"playwright": "*",
+		"vitest": "^5.0.0-beta.5"
 	},
 	"devDependencies": {
 		"@types/node": "26.1.0",
-		"@vitest/browser": "4.1.9",
-		"playwright-core": "1.61.1",
+		"@vitest/browser-playwright": "link:../../../vitest/packages/browser-playwright",
+		"playwright": "npm:playwright-core@1.61.1",
 		"typescript": "5.9.3",
-		"vitest": "4.1.9"
+		"vitest": "link:../../../vitest/packages/vitest"
 	}
 }

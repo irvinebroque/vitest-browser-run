@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+	browserRunCdp,
 	createBrowserRunCdpConnection,
 	getBrowserRunApiToken,
 	getBrowserRunWsEndpoint,
@@ -67,9 +68,6 @@ describe('Browser Run CDP connector', () => {
 			publicOrigin: 'https://runner.example.com',
 			keepAliveMs: 600000,
 			recording: false,
-			browserPerSession: true,
-			launchDelayMs: 1100,
-			logSessions: false,
 		})).toEqual({
 			wsEndpoint: 'wss://example.com/devtools/browser',
 			headers: { Authorization: 'Bearer token' },
@@ -104,5 +102,27 @@ describe('Browser Run CDP connector', () => {
 			'http://127.0.0.1:63315/__vitest_test__/?sessionId=abc',
 			'',
 		)).toThrow('Missing VITEST_BROWSER_PUBLIC_ORIGIN');
+	});
+
+	it('reads public origin lazily for Vite plugin tunnel startup', async () => {
+		vi.stubEnv('CF_ACCOUNT_ID', 'env-account');
+		vi.stubEnv('CF_API_TOKEN', 'env-token');
+
+		const provider = browserRunCdp() as ReturnType<typeof browserRunCdp> & {
+			options: {
+				runner: {
+					resolveUrl: (context: { url: string; sessionId: string; parallel: boolean; browserName: 'chromium' }) => string | Promise<string>;
+				};
+			};
+		};
+
+		vi.stubEnv('VITEST_BROWSER_PUBLIC_ORIGIN', 'https://runner.example.com');
+
+		expect(await provider.options.runner.resolveUrl({
+			url: 'http://127.0.0.1:63315/__vitest_test__/?sessionId=abc',
+			sessionId: 'abc',
+			parallel: false,
+			browserName: 'chromium',
+		})).toBe('https://runner.example.com/__vitest_test__/?sessionId=abc');
 	});
 });
