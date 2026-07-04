@@ -4,5 +4,5 @@
 		"lib": ["es2024", "dom", "dom.iterable"],
 		"types": ["vitest", "vitest/browser"]
 	},
-	"include": ["./**/*.ts", "../../src/**/*.ts"]
+	"include": ["./**/*.ts", "../../src/**/*.ts", "../../vitest.*.config.ts"]
 }

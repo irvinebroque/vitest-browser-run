@@ -1,0 +1,28 @@
+import { playwright } from '@vitest/browser-playwright';
+import { defineConfig } from 'vitest/config';
+
+import { benchmarkInclude, localPlaywrightOptions, scenarioDelayMs } from './vitest.benchmark.shared';
+
+const localBrowserConcurrency = Number(process.env.LOCAL_BROWSER_CONCURRENCY ?? process.env.VITEST_MAX_WORKERS ?? '4');
+
+export default defineConfig({
+	test: {
+		include: benchmarkInclude,
+		fileParallelism: true,
+		maxWorkers: localBrowserConcurrency,
+		env: {
+			VITEST_BENCHMARK_MODE: process.env.VITEST_BENCHMARK_MODE ?? 'local-parallel',
+			VITEST_SCENARIO_DELAY_MS: scenarioDelayMs,
+		},
+		browser: {
+			enabled: true,
+			headless: true,
+			fileParallelism: true,
+			provider: playwright(localPlaywrightOptions()),
+			api: {
+				allowWrite: true,
+			},
+			instances: [{ browser: 'chromium', viewport: { width: 1280, height: 800 } }],
+		},
+	},
+});

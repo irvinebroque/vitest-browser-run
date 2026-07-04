@@ -105,6 +105,26 @@ Run only the visual suite:
 pnpm test:browser-run:visual
 ```
 
+Run the large-app Browser Run benchmark:
+
+```sh
+pnpm bench:browser-run
+```
+
+Compare local serial, local parallel, and Browser Run parallel runs:
+
+```sh
+pnpm bench:compare
+```
+
+The local benchmark modes use system Chrome by default. Override with `LOCAL_BROWSER_CHANNEL` if your local browser channel is different.
+
+Benchmark reports are written under `examples/parallelism/artifacts/benchmark/`:
+
+- `benchmark-summary.md`
+- `benchmark-report.html`
+- per-mode `benchmark-events.jsonl`
+
 ## Browser Run Credentials
 
 Set Browser Run credentials in either `examples/parallelism/.env`, the repo-root `.env`, or your shell:

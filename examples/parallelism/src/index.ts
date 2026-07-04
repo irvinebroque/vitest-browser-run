@@ -2,6 +2,7 @@
 
 import { appHtml, greetingFor } from './greeting';
 import { parallelJobFor, parallelLabHtml, readParallelSlot } from './parallel';
+import { createScenarioBootstrap, scenarioAppHtml } from './scenarios';
 
 export default {
 	async fetch(request, _env, _ctx): Promise<Response> {
@@ -19,6 +20,17 @@ export default {
 
 		if (url.pathname === '/parallel') {
 			return new Response(parallelLabHtml(parallelJobFor(readParallelSlot(url.searchParams.get('slot')))), {
+				headers: { 'content-type': 'text/html;charset=UTF-8' },
+			});
+		}
+
+		if (url.pathname === '/api/bootstrap') {
+			return Response.json(createScenarioBootstrap(url.searchParams.get('scenario') ?? ''));
+		}
+
+		const scenarioMatch = url.pathname.match(/^\/app\/scenario\/([^/]+)$/);
+		if (scenarioMatch) {
+			return new Response(scenarioAppHtml(decodeURIComponent(scenarioMatch[1]!)), {
 				headers: { 'content-type': 'text/html;charset=UTF-8' },
 			});
 		}
