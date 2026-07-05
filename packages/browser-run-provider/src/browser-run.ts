@@ -766,11 +766,52 @@ const browserRunStartupMarksScript = `
 		return;
 	}
 	const marks = {
+		channelMessages: [],
 		domContentLoadedAt: document.readyState === 'loading' ? null : Date.now(),
+		iframeEvents: [],
 		iframeReadyMessages: [],
 		initScriptAt: Date.now(),
 		installed: true,
 		loadAt: document.readyState === 'complete' ? Date.now() : null,
+	};
+	const maxEntries = 256;
+	const pushLimited = (items, item) => {
+		if (items.length < maxEntries) {
+			items.push(item);
+		}
+	};
+	const readIframeId = (src) => {
+		try {
+			return new URL(src, location.href).searchParams.get('iframeId');
+		}
+		catch {
+			return null;
+		}
+	};
+	const recordReadyMessage = (data, source) => {
+		if (data?.event === 'ready') {
+			pushLimited(marks.iframeReadyMessages, {
+				at: Date.now(),
+				iframeId: data.iframeId,
+				source,
+			});
+		}
+	};
+	const recordChannelMessage = (data, source) => {
+		const event = typeof data?.event === 'string' ? data.event : typeof data?.type === 'string' ? data.type : null;
+		if (!event) {
+			return;
+		}
+
+		if (event === 'ready' || event === 'prepare' || event === 'execute' || event === 'cleanup' || event === 'viewport' || event === 'viewport:done' || event.startsWith('ack:') || event.startsWith('response:')) {
+			pushLimited(marks.channelMessages, {
+				at: Date.now(),
+				event,
+				iframeId: data.iframeId,
+				source,
+			});
+		}
+		recordReadyMessage(data, source);
 	};
 	Object.defineProperty(globalThis, key, { configurable: true, value: marks });
 	globalThis.addEventListener('DOMContentLoaded', () => {
@@ -780,27 +821,54 @@ const browserRunStartupMarksScript = `
 		marks.loadAt ??= Date.now();
 	}, { once: true });
 	globalThis.addEventListener('message', (event) => {
-		if (event.data?.event === 'ready') {
-			marks.iframeReadyMessages.push({
-				at: Date.now(),
-				iframeId: event.data.iframeId,
-				source: 'window-message',
-			});
-		}
+		recordChannelMessage(event.data, 'window-message');
 	});
+	if (typeof MutationObserver === 'function' && typeof HTMLIFrameElement === 'function') {
+		try {
+			const observedIframes = new WeakSet();
+			const recordIframe = (iframe) => {
+				if (!(iframe instanceof HTMLIFrameElement) || observedIframes.has(iframe) || iframe.dataset?.vitest !== 'true') {
+					return;
+				}
+
+				observedIframes.add(iframe);
+				const iframeId = readIframeId(iframe.src);
+				pushLimited(marks.iframeEvents, {
+					at: Date.now(),
+					event: 'created',
+					iframeId,
+					src: iframe.getAttribute('src'),
+				});
+				iframe.addEventListener('load', () => {
+					pushLimited(marks.iframeEvents, {
+						at: Date.now(),
+						event: 'load',
+						iframeId,
+						src: iframe.getAttribute('src'),
+					});
+				});
+			};
+			document.querySelectorAll('iframe[data-vitest="true"]').forEach(recordIframe);
+			new MutationObserver((records) => {
+				for (const record of records) {
+					for (const node of record.addedNodes) {
+						recordIframe(node);
+						if (typeof Element === 'function' && node instanceof Element) {
+							node.querySelectorAll('iframe[data-vitest="true"]').forEach(recordIframe);
+						}
+					}
+				}
+			}).observe(document.documentElement ?? document, { childList: true, subtree: true });
+		}
+		catch {}
+	}
 	const sessionId = globalThis.__CLOUDFLARE_BROWSER_RUN_POOL__?.sessionId;
 	if (sessionId && typeof BroadcastChannel === 'function') {
 		try {
 			const channel = new BroadcastChannel('vitest:' + sessionId);
 			Object.defineProperty(globalThis, '__CLOUDFLARE_BROWSER_RUN_STARTUP_CHANNEL__', { configurable: true, value: channel });
 			channel.addEventListener('message', (event) => {
-				if (event.data?.event === 'ready') {
-					marks.iframeReadyMessages.push({
-						at: Date.now(),
-						iframeId: event.data.iframeId,
-						source: 'broadcast-channel',
-					});
-				}
+				recordChannelMessage(event.data, 'broadcast-channel');
 			});
 		}
 		catch {}

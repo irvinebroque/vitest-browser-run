@@ -10,6 +10,7 @@ import { writeBenchmarkReport } from './write-benchmark-report.mjs';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const artifactRoot = join(root, 'artifacts/benchmark');
 const benchmarkSessionsPerBrowser = readBenchmarkSessionsPerBrowser();
+const browserRunBenchmarkSessionsPerBrowser = readBrowserRunSessionsPerBrowser();
 const browserRunBenchmarkBrowsers = readPositiveIntegerEnv('CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS', 4);
 
 const modeConfigs = {
@@ -203,9 +204,9 @@ function browserRunSpeedup(summary, browserRunBaseline) {
 
 function browserRunModeEnv(maxBrowsers) {
 	return {
-		BENCHMARK_SESSIONS_PER_BROWSER: String(benchmarkSessionsPerBrowser),
+		BENCHMARK_SESSIONS_PER_BROWSER: String(browserRunBenchmarkSessionsPerBrowser),
 		CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS: String(maxBrowsers),
-		CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER: String(benchmarkSessionsPerBrowser),
+		CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER: String(browserRunBenchmarkSessionsPerBrowser),
 	};
 }
 
@@ -275,7 +276,15 @@ function readBenchmarkSessionsPerBrowser() {
 		return readPositiveIntegerEnv('BENCHMARK_SESSIONS_PER_BROWSER', 4);
 	}
 
-	return readPositiveIntegerEnv('CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER', 4);
+	return 4;
+}
+
+function readBrowserRunSessionsPerBrowser() {
+	if (process.env.BENCHMARK_SESSIONS_PER_BROWSER) {
+		return readPositiveIntegerEnv('BENCHMARK_SESSIONS_PER_BROWSER', 2);
+	}
+
+	return readPositiveIntegerEnv('CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER', 2);
 }
 
 function readPositiveIntegerEnv(name, fallback) {

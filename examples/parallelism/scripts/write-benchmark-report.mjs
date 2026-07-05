@@ -161,6 +161,8 @@ function summarizeBenchmarkStartupTimings(events, metadata, startupEvents, timin
 	const firstCaseReady = firstStartupEvent(startupEvents, (event) => event.event === 'vitest:first-case-ready');
 	const firstRequest = firstStartupRequest(startupEvents, metadata, () => true);
 	const runnerRequest = firstStartupRequest(startupEvents, metadata, (event) => event.url?.includes('/__vitest_test__/'));
+	const iframeDocumentRequest = firstStartupRequest(startupEvents, metadata, (event) => event.url?.startsWith('/?sessionId='));
+	const testerBundleRequest = firstStartupRequest(startupEvents, metadata, (event) => event.url?.includes('/__vitest_browser__/tester-'));
 	const browserTestRequest = firstStartupRequest(startupEvents, metadata, (event) => event.url?.includes('.browser.test.ts'));
 	const helperRequest = firstStartupRequest(startupEvents, metadata, (event) => event.url?.includes('scenario-helper.ts'));
 	const firstEvent = events.length ? [...events].sort((a, b) => a.startTime - b.startTime)[0] : null;
@@ -182,10 +184,12 @@ function summarizeBenchmarkStartupTimings(events, metadata, startupEvents, timin
 		firstRequest,
 		helperImportedMs: duration(metadata.startedAt, firstEvent?.benchmarkTimings?.scenarioHelperImportedAt),
 		helperRequest,
+		iframeDocumentRequest,
 		providerFactoryStartedMs: timingSummary?.providerFactoryStartedDeltaMs ?? null,
 		providerOptionCreatedMs: timingSummary?.providerOptionCreatedDeltaMs ?? null,
 		runnerRequest,
 		serverListeningMs: duration(metadata.startedAt, serverListening?.timestamp),
+		testerBundleRequest,
 		testRunStartMs: duration(metadata.startedAt, testRunStart?.timestamp),
 		vitestInitMs: duration(metadata.startedAt, vitestInit?.timestamp),
 		vitestProcessSpawnedMs: duration(metadata.startedAt, metadata.vitestProcessSpawnedAt),
@@ -193,17 +197,37 @@ function summarizeBenchmarkStartupTimings(events, metadata, startupEvents, timin
 }
 
 function summarizeBrowserStartupMarks(marks, metadata) {
+	const channelMessages = Array.isArray(marks?.channelMessages) ? marks.channelMessages : [];
+	const iframeEvents = Array.isArray(marks?.iframeEvents) ? marks.iframeEvents : [];
 	const readyMessages = Array.isArray(marks?.iframeReadyMessages) ? marks.iframeReadyMessages : [];
 	const readyTimes = readyMessages.map((message) => message.at).filter(Number.isFinite).sort((a, b) => a - b);
 
 	return {
+		firstExecuteAckMs: firstChannelMessageMs(channelMessages, metadata, 'ack:execute'),
+		firstExecuteResponseMs: firstChannelMessageMs(channelMessages, metadata, 'response:execute'),
+		firstExecuteSentMs: firstChannelMessageMs(channelMessages, metadata, 'execute'),
+		firstIframeCreatedMs: firstIframeEventMs(iframeEvents, metadata, 'created'),
+		firstIframeLoadMs: firstIframeEventMs(iframeEvents, metadata, 'load'),
 		firstIframeReadyMs: duration(metadata.startedAt, readyTimes[0]),
+		firstPrepareAckMs: firstChannelMessageMs(channelMessages, metadata, 'ack:prepare'),
+		firstPrepareResponseMs: firstChannelMessageMs(channelMessages, metadata, 'response:prepare'),
+		firstPrepareSentMs: firstChannelMessageMs(channelMessages, metadata, 'prepare'),
 		iframeReadyCount: readyTimes.length,
 		lastIframeReadyMs: duration(metadata.startedAt, readyTimes.at(-1)),
 		runnerDomContentLoadedMs: duration(metadata.startedAt, marks?.domContentLoadedAt),
 		runnerInitScriptMs: duration(metadata.startedAt, marks?.initScriptAt),
 		runnerLoadMs: duration(metadata.startedAt, marks?.loadAt),
 	};
+}
+
+function firstIframeEventMs(events, metadata, name) {
+	const event = events.find((entry) => entry.event === name && Number.isFinite(entry.at));
+	return duration(metadata.startedAt, event?.at);
+}
+
+function firstChannelMessageMs(messages, metadata, name) {
+	const message = messages.find((entry) => entry.event === name && Number.isFinite(entry.at));
+	return duration(metadata.startedAt, message?.at);
 }
 
 function firstStartupEvent(events, predicate) {
@@ -323,6 +347,7 @@ ${renderTimingMarkdown(summaries)}
 ${renderStartupMarkdown(summaries)}
 ${renderReporterMarkdown(summaries)}
 ${renderBrowserStartupMarkdown(summaries)}
+${renderIframeStartupMarkdown(summaries)}
 `;
 }
 
@@ -364,6 +389,27 @@ These timings come from marks recorded in the Browser Run page before Vitest Bro
 
 | Mode | Init script | DOMContentLoaded | Load | First iframe ready | Last iframe ready | Ready messages | First module queued | Helper imported | First event |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+${rows.join('\n')}
+`;
+}
+
+function renderIframeStartupMarkdown(summaries) {
+	const rows = summaries.filter((summary) => summary.startupTimingSummary).map((summary) => {
+		const timing = summary.startupTimingSummary;
+		return `| ${summary.mode} | ${formatDuration(timing.firstIframeCreatedMs)} | ${formatRequestTiming(timing.iframeDocumentRequest)} | ${formatDuration(timing.firstIframeLoadMs)} | ${formatRequestTiming(timing.testerBundleRequest)} | ${formatDuration(timing.firstIframeReadyMs)} | ${formatDuration(timing.firstPrepareSentMs)} | ${formatDuration(timing.firstPrepareAckMs)} | ${formatDuration(timing.firstPrepareResponseMs)} | ${formatDuration(timing.firstExecuteSentMs)} | ${formatDuration(timing.firstExecuteAckMs)} | ${formatDuration(timing.firstModuleQueuedMs)} |`;
+	});
+
+	if (!rows.length) {
+		return '';
+	}
+
+	return `
+## Vitest Iframe Startup Trace
+
+These timings split the runner-to-test gap into iframe creation, iframe document load, tester bundle load, Vitest readiness, and prepare/execute handshakes.
+
+| Mode | Iframe element | Iframe document | Iframe load | Tester bundle | Ready message | Prepare sent | Prepare ack | Prepare done | Execute sent | Execute ack | First module queued |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 ${rows.join('\n')}
 `;
 }

@@ -117,11 +117,11 @@ Run the same benchmark constrained to one hosted Browser Run browser:
 pnpm bench:browser-run:single
 ```
 
-Run a larger temporary comparison with the same per-browser session cap in local and Browser Run modes:
+Run a larger temporary comparison with an explicit Browser Run per-browser session cap:
 
 ```sh
 BENCHMARK_PROFILE=large \
-BENCHMARK_SESSIONS_PER_BROWSER=4 \
+CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=2 \
 CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=4 \
 pnpm bench:compare
 ```
@@ -136,7 +136,7 @@ This runs one benchmark contract across three modes:
 
 The only differences are provider and topology: local Playwright with default local parallelism, Browser Run with one hosted browser, and Browser Run with multiple hosted browsers. Local Chrome is reported as context only; Browser Run speedup compares pooled Browser Run against `browser-run-single`.
 
-The benchmark does not expose a separate total-concurrency setting. Browser Run benchmark `maxWorkers` is derived from `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS * BENCHMARK_SESSIONS_PER_BROWSER`.
+The benchmark does not expose a separate total-concurrency setting. Browser Run benchmark `maxWorkers` is derived from `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS * CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER`. Browser Run defaults to `2` sessions per hosted browser to avoid overloading Vitest Browser Mode startup with too many initial tester iframes.
 
 Supported profiles are `default` (96 scenarios), `full` (192), `large` (384), `xlarge` (768), and `stress` (1536). `BENCHMARK_SCENARIO_COUNT=<n>` overrides the profile size.
 

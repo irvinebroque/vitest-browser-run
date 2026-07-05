@@ -2,7 +2,6 @@ import { cloudflare } from '@cloudflare/vite-plugin';
 
 import { browserRunCdp } from '@cloudflare/vitest-browser-run-provider';
 import {
-	benchmarkSessionsPerBrowser,
 	benchmarkTestConfig,
 	browserApiHost,
 	browserApiPort,
@@ -38,7 +37,7 @@ export default {
 		},
 		connectTimeout: 180000,
 		env: {
-			BENCHMARK_SESSIONS_PER_BROWSER: String(benchmarkSessionsPerBrowser),
+			BENCHMARK_SESSIONS_PER_BROWSER: String(browserRunSessionsPerBrowser),
 			CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS: String(browserRunMaxBrowsers),
 			CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER: String(browserRunSessionsPerBrowser),
 		},

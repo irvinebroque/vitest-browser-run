@@ -105,15 +105,15 @@ Run the same Browser Run benchmark constrained to one hosted browser:
 pnpm bench:browser-run:single
 ```
 
-Benchmark comparison modes share `BENCHMARK_SESSIONS_PER_BROWSER`, which defaults to `4`. In `browser-run-single`, the runner sets one hosted browser with `BENCHMARK_SESSIONS_PER_BROWSER` sessions. In `browser-run`, the runner sets `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS` hosted browsers with `BENCHMARK_SESSIONS_PER_BROWSER` sessions per browser and prewarms the required Browser Run pool on first use.
+Local benchmark modes use `BENCHMARK_SESSIONS_PER_BROWSER`, which defaults to `4`. Browser Run modes use `CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER`, which defaults to `2` to avoid overloading Vitest Browser Mode startup with too many initial tester iframes. Setting `BENCHMARK_SESSIONS_PER_BROWSER` explicitly still applies the same per-browser session cap to local and Browser Run modes.
 
-The benchmark does not expose a separate total-concurrency knob. Browser Run benchmark `maxWorkers` is derived from hosted browsers multiplied by sessions per browser.
+The benchmark does not expose a separate total-concurrency knob. Browser Run benchmark `maxWorkers` is derived from hosted browsers multiplied by Browser Run sessions per browser.
 
 Run a larger app-shaped benchmark without committing the generated scenario files:
 
 ```sh
 BENCHMARK_PROFILE=large \
-BENCHMARK_SESSIONS_PER_BROWSER=4 \
+CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=2 \
 CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=4 \
 CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS=1000 \
 pnpm bench:compare
@@ -184,6 +184,7 @@ Optional benchmark controls:
 
 ```sh
 BENCHMARK_SESSIONS_PER_BROWSER="4"
+CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER="2"
 CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="4"
 CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS="1000"
 CLOUDFLARE_BROWSER_RUN_PREWARM="true"

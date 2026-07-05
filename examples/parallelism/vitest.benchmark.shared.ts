@@ -31,7 +31,6 @@ export const browserApiPort = Number(process.env.VITEST_BROWSER_API_PORT ?? '633
 
 export const benchmarkSessionsPerBrowser = Number(
 	process.env.BENCHMARK_SESSIONS_PER_BROWSER
-	?? process.env.CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER
 	?? '4',
 );
 
@@ -39,7 +38,8 @@ export const browserRunMaxBrowsers = Number(process.env.CLOUDFLARE_BROWSER_RUN_M
 
 export const browserRunSessionsPerBrowser = Number(
 	process.env.CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER
-	?? String(benchmarkSessionsPerBrowser),
+	?? process.env.BENCHMARK_SESSIONS_PER_BROWSER
+	?? '2',
 );
 
 export const browserRunAcquireIntervalMs = Number(process.env.CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS ?? '1000');
