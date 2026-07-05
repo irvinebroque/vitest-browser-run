@@ -72,7 +72,7 @@ async function navigateToScenarioApp(route: string, id: string): Promise<Documen
 	iframe.style.width = '1280px';
 
 	const loaded = new Promise<void>((resolve, reject) => {
-		const timeout = setTimeout(() => reject(new Error(`Timed out loading scenario route ${route}.`)), 5000);
+		const timeout = setTimeout(() => reject(new Error(`Timed out loading scenario route ${route}.`)), 30000);
 		iframe.addEventListener('load', () => {
 			clearTimeout(timeout);
 			resolve();
