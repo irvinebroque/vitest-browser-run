@@ -105,7 +105,7 @@ Run the same Browser Run benchmark constrained to one hosted browser:
 pnpm bench:browser-run:single
 ```
 
-Benchmark comparison modes share `BENCHMARK_SESSIONS_PER_BROWSER`, which defaults to `4`. In `browser-run-single`, the runner sets one hosted browser with `BENCHMARK_SESSIONS_PER_BROWSER` sessions. In `browser-run`, the runner sets `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS` hosted browsers with `BENCHMARK_SESSIONS_PER_BROWSER` sessions per browser.
+Benchmark comparison modes share `BENCHMARK_SESSIONS_PER_BROWSER`, which defaults to `4`. In `browser-run-single`, the runner sets one hosted browser with `BENCHMARK_SESSIONS_PER_BROWSER` sessions. In `browser-run`, the runner sets `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS` hosted browsers with `BENCHMARK_SESSIONS_PER_BROWSER` sessions per browser and prewarms the required Browser Run pool on first use.
 
 The benchmark does not expose a separate total-concurrency knob. Browser Run benchmark `maxWorkers` is derived from hosted browsers multiplied by sessions per browser.
 
@@ -186,13 +186,14 @@ Optional benchmark controls:
 BENCHMARK_SESSIONS_PER_BROWSER="4"
 CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="4"
 CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS="1000"
+CLOUDFLARE_BROWSER_RUN_PREWARM="true"
 BENCHMARK_PROFILE="large"
 BENCHMARK_SCENARIO_COUNT="384"
 ```
 
 ## Launch Throttling
 
-The provider paces new Browser Run session acquisition with `CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS` and retries `429` responses using `Retry-After` when Browser Run asks the client to slow down.
+The provider paces new Browser Run session acquisition with `CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS` and retries `429` responses using `Retry-After` when Browser Run asks the client to slow down. Set `CLOUDFLARE_BROWSER_RUN_PREWARM=true` to lazily pre-acquire the required pool size, or set it to a positive integer to prewarm a fixed number of hosted browsers.
 
 ## Routes
 

@@ -13,6 +13,7 @@ describe('public Browser Run provider types', () => {
 				acquireIntervalMs: 1000,
 				acquireTimeoutMs: 180000,
 				maxBrowsers: 10,
+				prewarm: true,
 				retry429: true,
 				sessionsPerBrowser: 4,
 			},
@@ -22,6 +23,7 @@ describe('public Browser Run provider types', () => {
 	it('exposes Browser Run pool options', () => {
 		const options = {
 			maxBrowsers: 2,
+			prewarm: 1,
 			sessionsPerBrowser: 4,
 		} satisfies BrowserRunPoolOptions;
 

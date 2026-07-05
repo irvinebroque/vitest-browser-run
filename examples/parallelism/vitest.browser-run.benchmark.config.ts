@@ -46,6 +46,7 @@ export default {
 			pool: {
 				acquireIntervalMs: browserRunAcquireIntervalMs,
 				maxBrowsers: browserRunMaxBrowsers,
+				prewarm: true,
 				sessionsPerBrowser: browserRunSessionsPerBrowser,
 			},
 		}),

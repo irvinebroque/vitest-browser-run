@@ -27,6 +27,7 @@ const cloudflareBrowserRunSessionsPerBrowserEnv = 'CLOUDFLARE_BROWSER_RUN_SESSIO
 const cloudflareBrowserRunAcquireIntervalMsEnv = 'CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS';
 const cloudflareBrowserRunAcquireTimeoutMsEnv = 'CLOUDFLARE_BROWSER_RUN_ACQUIRE_TIMEOUT_MS';
 const cloudflareBrowserRunRetry429Env = 'CLOUDFLARE_BROWSER_RUN_RETRY_429';
+const cloudflareBrowserRunPrewarmEnv = 'CLOUDFLARE_BROWSER_RUN_PREWARM';
 
 type BrowserRunCdpConnection = NonNullable<PlaywrightProviderOptions['connectOverCDPOptions']>;
 
@@ -43,9 +44,18 @@ export interface BrowserRunPoolOptions {
 	acquireTimeoutMs?: number;
 	/** Retry Browser Run 429 responses using Retry-After when possible. */
 	retry429?: boolean;
+	/** Pre-acquire Browser Run browsers lazily on first use. Use true for the required pool size or a number for an exact count. */
+	prewarm?: boolean | number;
 }
 
-export interface ResolvedBrowserRunPoolOptions extends Required<BrowserRunPoolOptions> {}
+export interface ResolvedBrowserRunPoolOptions {
+	maxBrowsers: number;
+	sessionsPerBrowser: number;
+	acquireIntervalMs: number;
+	acquireTimeoutMs: number;
+	retry429: boolean;
+	prewarm: boolean | number;
+}
 
 export interface BrowserRunCdpOptions {
 	/** Cloudflare account ID. Prefer CLOUDFLARE_ACCOUNT_ID for normal use. */
@@ -70,6 +80,12 @@ interface BrowserRunLease {
 	browserRunSessionId: string;
 	activeSessionIds: Set<string>;
 	closed: boolean;
+}
+
+interface PendingBrowserRunLease {
+	id: number;
+	activeSessionIds: Set<string>;
+	promise: Promise<BrowserRunLease>;
 }
 
 interface BrowserRunAcquireResult {
@@ -103,13 +119,16 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 	private readonly sourceOptions: BrowserRunCdpOptions;
 	private readonly browserRunOptions: ResolvedBrowserRunCdpOptions;
 	private readonly leases: BrowserRunLease[] = [];
+	private readonly pendingLeases: PendingBrowserRunLease[] = [];
 	private readonly sessionLeases = new Map<string, BrowserRunLease>();
+	private readonly sessionPendingLeases = new Map<string, PendingBrowserRunLease>();
 	private readonly sessionMetadata = new Map<string, Record<string, unknown>>();
-	private reserveQueue: Promise<void> = Promise.resolve();
+	private acquireSessionQueue: Promise<void> = Promise.resolve();
 	private lastAcquireAt = 0;
 	private nextLeaseId = 1;
 	private closingProvider = false;
 	private capacityValidated = false;
+	private prewarmStarted = false;
 
 	constructor(project: TestProject, sourceOptions: BrowserRunCdpOptions, resolvedOptions: ResolvedBrowserRunCdpOptions) {
 		super(project, createBasePlaywrightOptions(resolvedOptions));
@@ -120,6 +139,7 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 	async openPage(sessionId: string, url: string, options: { parallel: boolean }): Promise<void> {
 		this.validateProjectCapacity();
 		this.throwIfClosing();
+		this.startPrewarmIfNeeded();
 
 		if (this.pages.has(sessionId)) {
 			await this.closeSessionResources(sessionId);
@@ -176,18 +196,21 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 		this.closingProvider = true;
 		await super.close();
 
-		await Promise.all(this.leases.map(async (lease) => {
-			if (lease.closed) {
-				return;
-			}
-
-			lease.closed = true;
-			await lease.browser.close().catch(() => {});
-			await this.closeBrowserRunSession(lease.browserRunSessionId).catch(() => {});
-		}));
+		const pendingLeases = [...this.pendingLeases];
+		await Promise.all([
+			...this.leases.map((lease) => this.closeLease(lease)),
+			...pendingLeases.map(async (pending) => {
+				const lease = await pending.promise.catch(() => undefined);
+				if (lease) {
+					await this.closeLease(lease);
+				}
+			}),
+		]);
 
 		this.leases.length = 0;
+		this.pendingLeases.length = 0;
 		this.sessionLeases.clear();
+		this.sessionPendingLeases.clear();
 		this.sessionMetadata.clear();
 	}
 
@@ -219,49 +242,162 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 	}
 
 	private async reserveLease(sessionId: string): Promise<BrowserRunLease> {
+		this.throwIfClosing();
+
 		const existing = this.sessionLeases.get(sessionId);
 		if (existing) {
 			return existing;
 		}
 
-		let reserved!: BrowserRunLease;
-		this.reserveQueue = this.reserveQueue.then(async () => {
-			this.throwIfClosing();
+		const existingPending = this.sessionPendingLeases.get(sessionId);
+		if (existingPending) {
+			return existingPending.promise;
+		}
 
+		while (true) {
 			const lease = this.findLeaseWithCapacity();
 			if (lease) {
-				lease.activeSessionIds.add(sessionId);
-				this.sessionLeases.set(sessionId, lease);
-				reserved = lease;
-				return;
+				return this.assignReadyLease(sessionId, lease);
 			}
 
-			if (this.leases.length >= this.browserRunOptions.pool.maxBrowsers) {
+			const pendingLease = this.findPendingLeaseWithCapacity();
+			if (pendingLease) {
+				this.assignPendingLease(sessionId, pendingLease);
+				return pendingLease.promise;
+			}
+
+			if (this.getLeaseCount() >= this.browserRunOptions.pool.maxBrowsers) {
 				const capacity = this.getCapacityDescription();
 				throw new Error(`Browser Run pool is exhausted (${capacity}). Lower maxWorkers or increase Browser Run pool limits.`);
 			}
 
-			const acquired = await this.acquireBrowser();
-			const nextLease: BrowserRunLease = {
-				id: this.nextLeaseId,
-				browser: acquired.browser,
-				browserRunSessionId: acquired.browserRunSessionId,
-				activeSessionIds: new Set([sessionId]),
-				closed: false,
-			};
-			this.nextLeaseId += 1;
-			this.leases.push(nextLease);
-			this.sessionLeases.set(sessionId, nextLease);
-			reserved = nextLease;
-		});
-
-		await this.reserveQueue;
-		return reserved;
+			this.ensureLeaseCount(this.getLeaseCount() + 1);
+		}
 	}
 
 	private findLeaseWithCapacity(): BrowserRunLease | undefined {
 		const sessionsPerBrowser = this.getSessionsPerBrowser();
 		return this.leases.find((lease) => !lease.closed && lease.activeSessionIds.size < sessionsPerBrowser);
+	}
+
+	private findPendingLeaseWithCapacity(): PendingBrowserRunLease | undefined {
+		const sessionsPerBrowser = this.getSessionsPerBrowser();
+		return this.pendingLeases.find((lease) => lease.activeSessionIds.size < sessionsPerBrowser);
+	}
+
+	private assignReadyLease(sessionId: string, lease: BrowserRunLease): BrowserRunLease {
+		lease.activeSessionIds.add(sessionId);
+		this.sessionLeases.set(sessionId, lease);
+		return lease;
+	}
+
+	private assignPendingLease(sessionId: string, lease: PendingBrowserRunLease): void {
+		lease.activeSessionIds.add(sessionId);
+		this.sessionPendingLeases.set(sessionId, lease);
+	}
+
+	private ensureLeaseCount(target: number): PendingBrowserRunLease[] {
+		const cappedTarget = Math.min(this.browserRunOptions.pool.maxBrowsers, Math.max(0, target));
+		const started: PendingBrowserRunLease[] = [];
+		while (this.getLeaseCount() < cappedTarget) {
+			started.push(this.startPendingLease());
+		}
+
+		return started;
+	}
+
+	private getLeaseCount(): number {
+		return this.leases.filter((lease) => !lease.closed).length + this.pendingLeases.length;
+	}
+
+	private startPendingLease(): PendingBrowserRunLease {
+		this.throwIfClosing();
+
+		const pending: PendingBrowserRunLease = {
+			id: this.nextLeaseId,
+			activeSessionIds: new Set(),
+			promise: undefined as unknown as Promise<BrowserRunLease>,
+		};
+		this.nextLeaseId += 1;
+
+		pending.promise = this.acquireBrowser()
+			.then(async (acquired) => {
+				const lease: BrowserRunLease = {
+					id: pending.id,
+					browser: acquired.browser,
+					browserRunSessionId: acquired.browserRunSessionId,
+					activeSessionIds: pending.activeSessionIds,
+					closed: false,
+				};
+
+				this.removePendingLease(pending);
+				if (this.closingProvider) {
+					await this.closeLease(lease);
+					throw new Error('[vitest] The Browser Run provider was closed.');
+				}
+
+				this.leases.push(lease);
+				for (const activeSessionId of lease.activeSessionIds) {
+					this.sessionPendingLeases.delete(activeSessionId);
+					this.sessionLeases.set(activeSessionId, lease);
+				}
+
+				return lease;
+			})
+			.catch((error) => {
+				this.removePendingLease(pending);
+				for (const activeSessionId of pending.activeSessionIds) {
+					if (this.sessionPendingLeases.get(activeSessionId) === pending) {
+						this.sessionPendingLeases.delete(activeSessionId);
+					}
+					this.sessionMetadata.delete(activeSessionId);
+				}
+
+				throw error;
+			});
+
+		this.pendingLeases.push(pending);
+		pending.promise.catch(() => {});
+		return pending;
+	}
+
+	private removePendingLease(lease: PendingBrowserRunLease): void {
+		const index = this.pendingLeases.indexOf(lease);
+		if (index >= 0) {
+			this.pendingLeases.splice(index, 1);
+		}
+	}
+
+	private startPrewarmIfNeeded(): void {
+		if (this.prewarmStarted) {
+			return;
+		}
+
+		this.prewarmStarted = true;
+		const target = this.getPrewarmTarget();
+		if (target <= 0) {
+			return;
+		}
+
+		this.ensureLeaseCount(target);
+	}
+
+	private getPrewarmTarget(): number {
+		const prewarm = this.browserRunOptions.pool.prewarm;
+		if (prewarm === false || prewarm === 0) {
+			return 0;
+		}
+
+		const maxBrowsers = this.browserRunOptions.wsEndpoint ? 1 : this.browserRunOptions.pool.maxBrowsers;
+		if (typeof prewarm === 'number') {
+			return Math.min(maxBrowsers, prewarm);
+		}
+
+		const sessionsPerBrowser = this.getSessionsPerBrowser();
+		const maxNeeded = Number.isFinite(sessionsPerBrowser)
+			? Math.ceil(this.getProjectMaxWorkers() / sessionsPerBrowser)
+			: 1;
+		return Math.min(maxBrowsers, Math.max(1, maxNeeded));
 	}
 
 	private getSessionsPerBrowser(): number {
@@ -285,6 +421,7 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 				);
 			}
 
+			this.throwIfClosing();
 			return {
 				browser: await this.connectOverCdp(this.browserRunOptions.wsEndpoint),
 				browserRunSessionId: '',
@@ -292,51 +429,86 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 		}
 
 		const session = await this.acquireBrowserRunSession();
+		return this.connectBrowserRunSession(session);
+	}
+
+	private async connectBrowserRunSession(session: BrowserRunSessionResponse): Promise<BrowserRunAcquireResult> {
 		const wsEndpoint = session.webSocketDebuggerUrl ?? getBrowserRunSessionWsEndpoint(this.browserRunOptions, session.sessionId!);
-		return {
-			browser: await this.connectOverCdp(wsEndpoint),
-			browserRunSessionId: session.sessionId ?? '',
-		};
+		const browserRunSessionId = session.sessionId ?? '';
+		try {
+			this.throwIfClosing();
+			return {
+				browser: await this.connectOverCdp(wsEndpoint),
+				browserRunSessionId,
+			};
+		}
+		catch (error) {
+			await this.closeBrowserRunSession(browserRunSessionId).catch(() => {});
+			throw error;
+		}
 	}
 
 	private async acquireBrowserRunSession(): Promise<BrowserRunSessionResponse> {
-		const accountId = getBrowserRunAccountId(this.browserRunOptions);
-		const apiToken = getBrowserRunApiToken(this.browserRunOptions);
 		const startedAt = Date.now();
 		let lastError: unknown;
 
 		while (Date.now() - startedAt <= this.browserRunOptions.pool.acquireTimeoutMs) {
-			await this.waitForAcquireSlot();
+			try {
+				return await this.enqueueBrowserRunSessionStart(async () => {
+					this.throwIfClosing();
+					await this.waitForAcquireSlot();
+					this.throwIfClosing();
+					const session = await this.acquireBrowserRunSessionOnly();
+					this.lastAcquireAt = Date.now();
+					return session;
+				});
+			}
+			catch (error) {
+				if (!(error instanceof BrowserRunRateLimitError)) {
+					throw error;
+				}
 
-			const response = await fetch(getBrowserRunSessionApiUrl(accountId, this.browserRunOptions), {
-				method: 'POST',
-				headers: {
-					Authorization: `Bearer ${apiToken}`,
-				},
-			});
-
-			if (response.status === 429 && this.browserRunOptions.pool.retry429) {
-				lastError = new Error('Browser Run acquisition was rate limited.');
-				await response.body?.cancel().catch(() => {});
-				await delay(readRetryAfterMs(response.headers.get('Retry-After')) ?? this.browserRunOptions.pool.acquireIntervalMs);
+				lastError = error;
+				await delay(error.retryAfterMs ?? this.browserRunOptions.pool.acquireIntervalMs);
 				continue;
 			}
-
-			if (!response.ok) {
-				const message = await response.text().catch(() => response.statusText);
-				throw new Error(`Browser Run session acquisition failed with HTTP ${response.status}: ${message}`);
-			}
-
-			const result = normalizeBrowserRunSessionResponse(await response.json());
-			if (!result.sessionId && !result.webSocketDebuggerUrl) {
-				throw new Error('Browser Run session acquisition succeeded but did not return sessionId or webSocketDebuggerUrl.');
-			}
-
-			this.lastAcquireAt = Date.now();
-			return result;
 		}
 
 		throw new Error(`Timed out acquiring a Browser Run session after ${this.browserRunOptions.pool.acquireTimeoutMs}ms.`, { cause: lastError });
+	}
+
+	private async acquireBrowserRunSessionOnly(): Promise<BrowserRunSessionResponse> {
+		const accountId = getBrowserRunAccountId(this.browserRunOptions);
+		const apiToken = getBrowserRunApiToken(this.browserRunOptions);
+		const response = await fetch(getBrowserRunSessionApiUrl(accountId, this.browserRunOptions), {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${apiToken}`,
+			},
+		});
+
+		if (response.status === 429 && this.browserRunOptions.pool.retry429) {
+			await response.body?.cancel().catch(() => {});
+			throw new BrowserRunRateLimitError(readRetryAfterMs(response.headers.get('Retry-After')));
+		}
+
+		if (!response.ok) {
+			const message = await response.text().catch(() => response.statusText);
+			throw new Error(`Browser Run session acquisition failed with HTTP ${response.status}: ${message}`);
+		}
+
+		const result = normalizeBrowserRunSessionResponse(await response.json());
+		if (!result.sessionId && !result.webSocketDebuggerUrl) {
+			throw new Error('Browser Run session acquisition succeeded but did not return sessionId or webSocketDebuggerUrl.');
+		}
+
+		return result;
+	}
+
+	private enqueueBrowserRunSessionStart<T>(operation: () => Promise<T>): Promise<T> {
+		const queued = this.acquireSessionQueue.then(operation, operation);
+		this.acquireSessionQueue = queued.then(() => undefined, () => undefined);
+		return queued;
 	}
 
 	private async waitForAcquireSlot(): Promise<void> {
@@ -426,6 +598,16 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 		return `Object.defineProperty(globalThis, '__CLOUDFLARE_BROWSER_RUN_POOL__', { configurable: true, value: ${JSON.stringify(metadata)} });`;
 	}
 
+	private async closeLease(lease: BrowserRunLease): Promise<void> {
+		if (lease.closed) {
+			return;
+		}
+
+		lease.closed = true;
+		await lease.browser.close().catch(() => {});
+		await this.closeBrowserRunSession(lease.browserRunSessionId).catch(() => {});
+	}
+
 	private async closeBrowserRunSession(sessionId: string): Promise<void> {
 		if (!sessionId || this.browserRunOptions.wsEndpoint) {
 			return;
@@ -506,6 +688,7 @@ export function resolveBrowserRunPoolOptions(options: BrowserRunPoolOptions): Re
 		acquireIntervalMs: options.acquireIntervalMs ?? readNumber(process.env[cloudflareBrowserRunAcquireIntervalMsEnv], 1000, cloudflareBrowserRunAcquireIntervalMsEnv),
 		acquireTimeoutMs: options.acquireTimeoutMs ?? readNumber(process.env[cloudflareBrowserRunAcquireTimeoutMsEnv], 180000, cloudflareBrowserRunAcquireTimeoutMsEnv),
 		retry429: options.retry429 ?? readBoolean(process.env[cloudflareBrowserRunRetry429Env], true, cloudflareBrowserRunRetry429Env),
+		prewarm: options.prewarm ?? readPrewarmOption(process.env[cloudflareBrowserRunPrewarmEnv], false, cloudflareBrowserRunPrewarmEnv),
 	} satisfies ResolvedBrowserRunPoolOptions;
 
 	validateBrowserRunPoolOptions(resolved);
@@ -517,6 +700,12 @@ export function validateBrowserRunPoolOptions(options: ResolvedBrowserRunPoolOpt
 	assertIntegerAtLeast(options.sessionsPerBrowser, 0, 'pool.sessionsPerBrowser');
 	assertIntegerAtLeast(options.acquireIntervalMs, 0, 'pool.acquireIntervalMs');
 	assertIntegerAtLeast(options.acquireTimeoutMs, 1, 'pool.acquireTimeoutMs');
+	if (typeof options.prewarm !== 'boolean' && typeof options.prewarm !== 'number') {
+		throw new Error(`Invalid pool.prewarm: expected a boolean or an integer greater than or equal to 0, got ${JSON.stringify(options.prewarm)}.`);
+	}
+	if (typeof options.prewarm === 'number') {
+		assertIntegerAtLeast(options.prewarm, 0, 'pool.prewarm');
+	}
 }
 
 function validateBrowserRunCdpOptions(options: ResolvedBrowserRunCdpOptions): void {
@@ -532,6 +721,28 @@ function assertIntegerAtLeast(value: number, min: number, name: string): void {
 	if (!Number.isInteger(value) || value < min) {
 		throw new Error(`Invalid ${name}: expected an integer greater than or equal to ${min}, got ${JSON.stringify(value)}.`);
 	}
+}
+
+function readPrewarmOption(value: string | undefined, defaultValue: boolean | number, name: string): boolean | number {
+	if (value == null || value === '') {
+		return defaultValue;
+	}
+
+	const normalized = value.toLowerCase();
+	if (normalized === 'true') {
+		return true;
+	}
+
+	if (normalized === 'false' || normalized === '0') {
+		return false;
+	}
+
+	const number = Number(value);
+	if (Number.isInteger(number) && number > 0) {
+		return number;
+	}
+
+	throw new Error(`Invalid ${name}: expected true, false, 0, or a positive integer, got ${JSON.stringify(value)}.`);
 }
 
 export function resolveBrowserRunRunnerUrl(url: string, publicOrigin: string): string {
@@ -606,6 +817,12 @@ function normalizeBrowserRunSessionResponse(payload: unknown): BrowserRunSession
 	}
 
 	return payload && typeof payload === 'object' ? payload as BrowserRunSessionResponse : {};
+}
+
+class BrowserRunRateLimitError extends Error {
+	constructor(readonly retryAfterMs: number | undefined) {
+		super('Browser Run acquisition was rate limited.');
+	}
 }
 
 function readRetryAfterMs(value: string | null): number | undefined {

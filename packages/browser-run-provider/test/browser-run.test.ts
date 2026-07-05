@@ -116,14 +116,34 @@ describe('Browser Run CDP connector', () => {
 		vi.stubEnv('CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS', '25');
 		vi.stubEnv('CLOUDFLARE_BROWSER_RUN_ACQUIRE_TIMEOUT_MS', '5000');
 		vi.stubEnv('CLOUDFLARE_BROWSER_RUN_RETRY_429', 'false');
+		vi.stubEnv('CLOUDFLARE_BROWSER_RUN_PREWARM', '3');
 
 		expect(resolveBrowserRunPoolOptions({})).toEqual({
 			acquireIntervalMs: 25,
 			acquireTimeoutMs: 5000,
 			maxBrowsers: 3,
+			prewarm: 3,
 			retry429: false,
 			sessionsPerBrowser: 4,
 		});
+	});
+
+	it('resolves Browser Run pool prewarm options', () => {
+		expect(resolveBrowserRunPoolOptions({}).prewarm).toBe(false);
+
+		vi.stubEnv('CLOUDFLARE_BROWSER_RUN_PREWARM', 'true');
+		expect(resolveBrowserRunPoolOptions({}).prewarm).toBe(true);
+
+		vi.stubEnv('CLOUDFLARE_BROWSER_RUN_PREWARM', 'false');
+		expect(resolveBrowserRunPoolOptions({}).prewarm).toBe(false);
+
+		vi.stubEnv('CLOUDFLARE_BROWSER_RUN_PREWARM', '2');
+		expect(resolveBrowserRunPoolOptions({}).prewarm).toBe(2);
+
+		vi.stubEnv('CLOUDFLARE_BROWSER_RUN_PREWARM', 'sometimes');
+		expect(() => resolveBrowserRunPoolOptions({})).toThrow('CLOUDFLARE_BROWSER_RUN_PREWARM');
+		expect(() => resolveBrowserRunPoolOptions({ prewarm: -1 })).toThrow('pool.prewarm');
+		expect(() => resolveBrowserRunPoolOptions({ prewarm: 'true' as never })).toThrow('pool.prewarm');
 	});
 
 	it('prefers explicit pool options over env vars', () => {
@@ -255,6 +275,114 @@ describe('Browser Run CDP connector', () => {
 		expect(browsers[1]!.close).toHaveBeenCalledOnce();
 	});
 
+	it('paces Browser Run session starts while CDP connects overlap', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+		const connectDeferreds: Array<Deferred<MockBrowser>> = [];
+		const { fetchCalls, provider } = setupPooledProvider({
+			pool: { acquireIntervalMs: 1000, maxBrowsers: 2, sessionsPerBrowser: 1 },
+		}, 2, {
+			connectOverCdp: () => {
+				const deferred = createDeferred<MockBrowser>();
+				connectDeferreds.push(deferred);
+				return deferred.promise;
+			},
+		});
+
+		const firstOpen = provider.openPage(
+			'session-1',
+			'http://127.0.0.1:63315/__vitest_test__/?sessionId=session-1',
+			{ parallel: true },
+		);
+		const secondOpen = provider.openPage(
+			'session-2',
+			'http://127.0.0.1:63315/__vitest_test__/?sessionId=session-2',
+			{ parallel: true },
+		);
+
+		await vi.advanceTimersByTimeAsync(0);
+		await flushMicrotasks();
+		expect(fetchCalls.filter((call) => call.method === 'POST')).toHaveLength(1);
+		expect(playwrightMocks.connectOverCDP).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(999);
+		await flushMicrotasks();
+		expect(fetchCalls.filter((call) => call.method === 'POST')).toHaveLength(1);
+		expect(playwrightMocks.connectOverCDP).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(1);
+		await flushMicrotasks();
+		expect(fetchCalls.filter((call) => call.method === 'POST')).toHaveLength(2);
+		expect(playwrightMocks.connectOverCDP).toHaveBeenCalledTimes(2);
+
+		connectDeferreds[0]!.resolve(createMockBrowser());
+		connectDeferreds[1]!.resolve(createMockBrowser());
+		await Promise.all([firstOpen, secondOpen]);
+		await provider.close();
+	});
+
+	it('prewarms the required Browser Run pool on first openPage', async () => {
+		const connectDeferreds: Array<Deferred<MockBrowser>> = [];
+		const { fetchCalls, provider } = setupPooledProvider({
+			pool: { acquireIntervalMs: 0, maxBrowsers: 4, prewarm: true, sessionsPerBrowser: 4 },
+		}, 16, {
+			connectOverCdp: () => {
+				const deferred = createDeferred<MockBrowser>();
+				connectDeferreds.push(deferred);
+				return deferred.promise;
+			},
+		});
+
+		const open = provider.openPage(
+			'session-1',
+			'http://127.0.0.1:63315/__vitest_test__/?sessionId=session-1',
+			{ parallel: true },
+		);
+
+		await vi.waitFor(() => {
+			expect(playwrightMocks.connectOverCDP).toHaveBeenCalledTimes(4);
+		});
+		expect(fetchCalls.filter((call) => call.method === 'POST')).toHaveLength(4);
+
+		for (const deferred of connectDeferreds) {
+			deferred.resolve(createMockBrowser());
+		}
+		await open;
+		await provider.close();
+
+		expect(fetchCalls.filter((call) => call.method === 'DELETE')).toHaveLength(4);
+	});
+
+	it('prewarms only the browser count required by maxWorkers', async () => {
+		const { fetchCalls, provider } = setupPooledProvider({
+			pool: { acquireIntervalMs: 0, maxBrowsers: 4, prewarm: true, sessionsPerBrowser: 4 },
+		}, 4);
+
+		await provider.openPage(
+			'session-1',
+			'http://127.0.0.1:63315/__vitest_test__/?sessionId=session-1',
+			{ parallel: true },
+		);
+
+		expect(fetchCalls.filter((call) => call.method === 'POST')).toHaveLength(1);
+		await provider.close();
+	});
+
+	it('prewarms one browser when sessionsPerBrowser is unlimited', async () => {
+		const { fetchCalls, provider } = setupPooledProvider({
+			pool: { acquireIntervalMs: 0, maxBrowsers: 4, prewarm: true, sessionsPerBrowser: 0 },
+		}, 16);
+
+		await provider.openPage(
+			'session-1',
+			'http://127.0.0.1:63315/__vitest_test__/?sessionId=session-1',
+			{ parallel: true },
+		);
+
+		expect(fetchCalls.filter((call) => call.method === 'POST')).toHaveLength(1);
+		await provider.close();
+	});
+
 	it('fails early when Vitest maxWorkers exceeds configured Browser Run pool capacity', async () => {
 		const { provider } = setupPooledProvider({
 			pool: { acquireIntervalMs: 0, maxBrowsers: 1, sessionsPerBrowser: 2 },
@@ -282,10 +410,73 @@ describe('Browser Run CDP connector', () => {
 		expect(playwrightMocks.connectOverCDP).toHaveBeenCalledOnce();
 	});
 
+	it('does not connect or delete a Browser Run session when API acquisition fails', async () => {
+		const { fetchCalls, provider } = setupPooledProvider({
+			pool: { acquireIntervalMs: 0, maxBrowsers: 1, sessionsPerBrowser: 1 },
+		}, 1, { acquireStatus: 500 });
+
+		await expect(provider.openPage(
+			'session-1',
+			'http://127.0.0.1:63315/__vitest_test__/?sessionId=session-1',
+			{ parallel: false },
+		)).rejects.toThrow('Browser Run session acquisition failed with HTTP 500');
+
+		expect(playwrightMocks.connectOverCDP).not.toHaveBeenCalled();
+		expect(fetchCalls.filter((call) => call.method === 'POST')).toHaveLength(1);
+		expect(fetchCalls.filter((call) => call.method === 'DELETE')).toHaveLength(0);
+	});
+
+	it('deletes the Browser Run session when CDP connection fails', async () => {
+		const { fetchCalls, provider } = setupPooledProvider({
+			pool: { acquireIntervalMs: 0, maxBrowsers: 1, sessionsPerBrowser: 1 },
+		}, 1, {
+			connectOverCdp: async () => {
+				throw new Error('cdp failed');
+			},
+		});
+
+		await expect(provider.openPage(
+			'session-1',
+			'http://127.0.0.1:63315/__vitest_test__/?sessionId=session-1',
+			{ parallel: false },
+		)).rejects.toThrow('cdp failed');
+
+		expect(fetchCalls.filter((call) => call.method === 'POST')).toHaveLength(1);
+		expect(fetchCalls.filter((call) => call.method === 'DELETE')).toHaveLength(1);
+	});
+
+	it('closes a pending acquisition when the provider closes mid-connect', async () => {
+		const deferred = createDeferred<MockBrowser>();
+		const { fetchCalls, provider } = setupPooledProvider({
+			pool: { acquireIntervalMs: 0, maxBrowsers: 1, sessionsPerBrowser: 1 },
+		}, 1, {
+			connectOverCdp: () => deferred.promise,
+		});
+
+		const open = provider.openPage(
+			'session-1',
+			'http://127.0.0.1:63315/__vitest_test__/?sessionId=session-1',
+			{ parallel: false },
+		);
+
+		await vi.waitFor(() => {
+			expect(playwrightMocks.connectOverCDP).toHaveBeenCalledOnce();
+		});
+
+		const browser = createMockBrowser();
+		const close = provider.close();
+		deferred.resolve(browser);
+		await close;
+		await expect(open).rejects.toThrow('[vitest] The Browser Run provider was closed.');
+
+		expect(browser.close).toHaveBeenCalledOnce();
+		expect(fetchCalls.filter((call) => call.method === 'DELETE')).toHaveLength(1);
+	});
+
 	it('uses a fixed custom WebSocket endpoint for a single Browser Run browser', async () => {
 		const { fetchCalls, provider } = setupPooledProvider({
 			wsEndpoint: 'wss://example.com/devtools/browser/session-id',
-			pool: { acquireIntervalMs: 0, maxBrowsers: 1, sessionsPerBrowser: 2 },
+			pool: { acquireIntervalMs: 0, maxBrowsers: 1, prewarm: true, sessionsPerBrowser: 2 },
 		}, 2);
 
 		await provider.openPage(
@@ -322,14 +513,26 @@ interface MockPage {
 	goto: ReturnType<typeof vi.fn>;
 }
 
-function setupPooledProvider(options: Parameters<typeof browserRunCdp>[0], maxWorkers = 8, fetchOptions: { firstAcquireRateLimited?: boolean } = {}) {
+interface Deferred<T> {
+	promise: Promise<T>;
+	reject: (error: unknown) => void;
+	resolve: (value: T) => void;
+}
+
+interface SetupPooledProviderOptions {
+	acquireStatus?: number;
+	connectOverCdp?: () => Promise<MockBrowser>;
+	firstAcquireRateLimited?: boolean;
+}
+
+function setupPooledProvider(options: Parameters<typeof browserRunCdp>[0], maxWorkers = 8, fetchOptions: SetupPooledProviderOptions = {}) {
 	const browsers: MockBrowser[] = [];
 	const fetchCalls: FetchCall[] = [];
 	let acquireCount = 0;
 	let rateLimited = fetchOptions.firstAcquireRateLimited ?? false;
 
 	playwrightMocks.connectOverCDP.mockImplementation(async () => {
-		const browser = createMockBrowser();
+		const browser = fetchOptions.connectOverCdp ? await fetchOptions.connectOverCdp() : createMockBrowser();
 		browsers.push(browser);
 		return browser;
 	});
@@ -343,6 +546,10 @@ function setupPooledProvider(options: Parameters<typeof browserRunCdp>[0], maxWo
 			if (rateLimited) {
 				rateLimited = false;
 				return new Response('rate limited', { headers: { 'Retry-After': '0' }, status: 429 });
+			}
+
+			if (fetchOptions.acquireStatus !== undefined) {
+				return new Response('failed', { status: fetchOptions.acquireStatus });
 			}
 
 			acquireCount += 1;
@@ -442,4 +649,20 @@ function createMockContext() {
 		goto: vi.fn(async () => {}),
 	};
 	return context;
+}
+
+function createDeferred<T>(): Deferred<T> {
+	let resolve!: (value: T) => void;
+	let reject!: (error: unknown) => void;
+	const promise = new Promise<T>((promiseResolve, promiseReject) => {
+		resolve = promiseResolve;
+		reject = promiseReject;
+	});
+	return { promise, reject, resolve };
+}
+
+async function flushMicrotasks(): Promise<void> {
+	for (let index = 0; index < 10; index += 1) {
+		await Promise.resolve();
+	}
 }
