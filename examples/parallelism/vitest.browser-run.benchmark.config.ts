@@ -12,11 +12,13 @@ import {
 	browserRunSessionsPerBrowser,
 	loadDotEnv,
 } from './vitest.benchmark.shared';
+import { benchmarkStartupTimingPlugin, markBenchmarkStartup } from './vitest.benchmark.startup';
 
 loadDotEnv();
+markBenchmarkStartup('browser-run-config-imported');
 
 export default {
-	plugins: [cloudflare({
+	plugins: [benchmarkStartupTimingPlugin(), cloudflare({
 		tunnel: {
 			autoStart: true,
 		},

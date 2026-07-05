@@ -3,6 +3,7 @@ import { loadEnvFile } from 'node:process';
 import type { BrowserProviderOption } from 'vitest/node';
 
 import { benchmarkContract, benchmarkContractEnv } from './scripts/benchmark-contract.mjs';
+import { benchmarkStartupReporter } from './vitest.benchmark.startup';
 
 export const benchmarkInclude = [benchmarkContract.testCorpus];
 
@@ -51,6 +52,7 @@ export function benchmarkTestConfig(options: BenchmarkTestConfigOptions) {
 		include: benchmarkInclude,
 		fileParallelism,
 		maxWorkers: options.maxWorkers,
+		reporters: ['default', benchmarkStartupReporter()],
 		env: {
 			...benchmarkContractEnv(options.topology),
 			VITEST_BENCHMARK_MODE: process.env.VITEST_BENCHMARK_MODE ?? options.mode,

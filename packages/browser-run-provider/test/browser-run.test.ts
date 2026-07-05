@@ -269,6 +269,10 @@ describe('Browser Run CDP connector', () => {
 					openPageEndedAt: expect.any(Number),
 					waitRunnerEndedAt: expect.any(Number),
 				}),
+				provider: expect.objectContaining({
+					providerFactoryStartedAt: expect.any(Number),
+					providerOptionCreatedAt: expect.any(Number),
+				}),
 			},
 			maxBrowsers: 2,
 			sessionsPerBrowser: 4,

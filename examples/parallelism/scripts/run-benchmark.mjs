@@ -93,9 +93,10 @@ try {
 		const start = performance.now();
 		let status = 'passed';
 		let errorMessage = '';
+		let vitestRunTiming = null;
 
 		try {
-			await run('pnpm', ['exec', 'vitest', 'run', '--config', config.config], {
+			vitestRunTiming = await run('pnpm', ['exec', 'vitest', 'run', '--config', config.config], {
 				env: childEnv,
 				mode,
 			});
@@ -126,6 +127,8 @@ try {
 			scenarioProfile: process.env.BENCHMARK_SCENARIO_PROFILE ?? process.env.BENCHMARK_PROFILE ?? 'default',
 			startedAt,
 			status,
+			vitestProcessExitedAt: vitestRunTiming?.exitedAt ?? null,
+			vitestProcessSpawnedAt: vitestRunTiming?.spawnedAt ?? null,
 			wallTimeMs: Math.round(performance.now() - start),
 		}, null, 2)}\n`);
 	}
@@ -155,17 +158,19 @@ finally {
 
 async function run(command, args, options) {
 	console.log(`\n[${options.mode}] ${command} ${args.join(' ')}`);
-	await new Promise((resolve, reject) => {
+	return await new Promise((resolve, reject) => {
 		const child = spawn(command, args, {
 			cwd: root,
 			env: options.env ?? process.env,
 			stdio: 'inherit',
 		});
+		const spawnedAt = Date.now();
 
 		child.on('error', reject);
 		child.on('exit', (code) => {
+			const exitedAt = Date.now();
 			if (code === 0) {
-				resolve();
+				resolve({ exitedAt, spawnedAt });
 			}
 			else {
 				reject(new Error(`${command} ${args.join(' ')} exited with ${code}`));

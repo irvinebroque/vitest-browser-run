@@ -13,9 +13,10 @@ export async function writeBenchmarkReport(requestedModes) {
 	for (const mode of modes) {
 		const events = await readModeEvents(mode);
 		const metadata = await readModeMetadata(mode);
+		const startupEvents = await readModeStartupEvents(mode);
 		await mkdir(join(artifactRoot, mode), { recursive: true });
 		await writeFile(join(artifactRoot, mode, 'benchmark-events.jsonl'), events.map((event) => JSON.stringify(event)).join('\n') + (events.length ? '\n' : ''));
-		summaries.push(summarizeMode(mode, events, metadata));
+		summaries.push(summarizeMode(mode, events, metadata, startupEvents));
 	}
 
 	await writeFile(join(artifactRoot, 'benchmark-summary.md'), renderMarkdown(summaries));
@@ -60,11 +61,22 @@ async function readModeMetadata(mode) {
 	}
 }
 
-function summarizeMode(mode, events, metadata) {
+async function readModeStartupEvents(mode) {
+	try {
+		const content = await readFile(join(artifactRoot, mode, 'startup-events.jsonl'), 'utf8');
+		return content.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)).sort((a, b) => a.timestamp - b.timestamp);
+	}
+	catch {
+		return [];
+	}
+}
+
+function summarizeMode(mode, events, metadata, startupEvents) {
 	const passed = events.filter((event) => event.status === 'passed').length;
 	const failed = events.filter((event) => event.status === 'failed').length;
 	const wallTimeMs = metadata.wallTimeMs || (events.length ? Math.max(...events.map((event) => event.endTime)) - Math.min(...events.map((event) => event.startTime)) : 0);
 	const browserGroups = groupEventsByBrowser(events);
+	const timingSummary = summarizeBrowserRunTimings(events, metadata);
 	return {
 		browserGroups,
 		browserSessionCount: browserGroups.length,
@@ -77,7 +89,9 @@ function summarizeMode(mode, events, metadata) {
 		mode,
 		passed,
 		scenarioCount: events.length,
-		timingSummary: summarizeBrowserRunTimings(events, metadata),
+		startupEvents,
+		startupTimingSummary: summarizeBenchmarkStartupTimings(events, metadata, startupEvents, timingSummary),
+		timingSummary,
 		topology: metadata.benchmarkProviderTopology || 'unknown',
 		wallTimeMs,
 	};
@@ -92,6 +106,7 @@ function summarizeBrowserRunTimings(events, metadata) {
 	const firstEvent = [...timedEvents].sort((a, b) => a.startTime - b.startTime)[0];
 	const openPage = firstEvent.browserRunTimings.openPage ?? {};
 	const lease = firstEvent.browserRunTimings.lease ?? {};
+	const provider = firstEvent.browserRunTimings.provider ?? {};
 	const firstAttempt = lease.sessionAttempts?.[0] ?? {};
 	const leaseFirstEvents = groupEventsByBrowser(timedEvents).map((group) => {
 		const first = group.events.sort((a, b) => a.startTime - b.startTime)[0];
@@ -105,6 +120,9 @@ function summarizeBrowserRunTimings(events, metadata) {
 
 	return {
 		setupBeforeFirstEventMs: duration(metadata.startedAt, firstEvent.startTime),
+		providerOptionCreatedDeltaMs: duration(metadata.startedAt, provider.providerOptionCreatedAt),
+		providerFactoryStartedDeltaMs: duration(metadata.startedAt, provider.providerFactoryStartedAt),
+		providerFactoryEndedDeltaMs: duration(metadata.startedAt, provider.providerFactoryEndedAt),
 		firstOpenPageStartedDeltaMs: duration(metadata.startedAt, openPage.openPageStartedAt),
 		reserveMs: duration(openPage.reserveStartedAt, openPage.reserveEndedAt),
 		acquireMs: duration(lease.acquireStartedAt, lease.acquireEndedAt),
@@ -122,6 +140,90 @@ function summarizeBrowserRunTimings(events, metadata) {
 		testHelperAfterOpenPageMs: duration(openPage.openPageEndedAt, firstEvent.benchmarkTimings?.scenarioHelperImportedAt),
 		firstEventAfterTestHelperMs: duration(firstEvent.benchmarkTimings?.scenarioHelperImportedAt, firstEvent.startTime),
 		leaseFirstEvents,
+	};
+}
+
+function summarizeBenchmarkStartupTimings(events, metadata, startupEvents, timingSummary) {
+	if (!startupEvents.length && !timingSummary) {
+		return null;
+	}
+
+	const configImported = firstStartupEvent(startupEvents, (event) => event.event?.endsWith('config-imported'));
+	const configResolved = firstStartupEvent(startupEvents, (event) => event.event === 'vite:config-resolved');
+	const configureServerEnd = firstStartupEvent(startupEvents, (event) => event.event === 'vite:configure-server-end');
+	const serverListening = firstStartupEvent(startupEvents, (event) => event.event === 'vite:http-listening');
+	const vitestInit = firstStartupEvent(startupEvents, (event) => event.event === 'vitest:on-init');
+	const testRunStart = firstStartupEvent(startupEvents, (event) => event.event === 'vitest:on-test-run-start');
+	const browserInit = firstStartupEvent(startupEvents, (event) => event.event === 'vitest:on-browser-init');
+	const firstModuleQueued = firstStartupEvent(startupEvents, (event) => event.event === 'vitest:first-module-queued');
+	const firstModuleCollected = firstStartupEvent(startupEvents, (event) => event.event === 'vitest:first-module-collected');
+	const firstModuleStart = firstStartupEvent(startupEvents, (event) => event.event === 'vitest:first-module-start');
+	const firstCaseReady = firstStartupEvent(startupEvents, (event) => event.event === 'vitest:first-case-ready');
+	const firstRequest = firstStartupRequest(startupEvents, metadata, () => true);
+	const runnerRequest = firstStartupRequest(startupEvents, metadata, (event) => event.url?.includes('/__vitest_test__/'));
+	const browserTestRequest = firstStartupRequest(startupEvents, metadata, (event) => event.url?.includes('.browser.test.ts'));
+	const helperRequest = firstStartupRequest(startupEvents, metadata, (event) => event.url?.includes('scenario-helper.ts'));
+	const firstEvent = events.length ? [...events].sort((a, b) => a.startTime - b.startTime)[0] : null;
+	const browserMarks = summarizeBrowserStartupMarks(firstEvent?.benchmarkTimings?.browserRunStartupMarks, metadata);
+
+	return {
+		...browserMarks,
+		browserInitMs: duration(metadata.startedAt, browserInit?.timestamp),
+		browserTestRequest,
+		configImportedMs: duration(metadata.startedAt, configImported?.timestamp),
+		configResolvedMs: duration(metadata.startedAt, configResolved?.timestamp),
+		configureServerEndMs: duration(metadata.startedAt, configureServerEnd?.timestamp),
+		firstCaseReadyMs: duration(metadata.startedAt, firstCaseReady?.timestamp),
+		firstEventMs: duration(metadata.startedAt, firstEvent?.startTime),
+		firstModuleCollectedMs: duration(metadata.startedAt, firstModuleCollected?.timestamp),
+		firstModuleQueuedMs: duration(metadata.startedAt, firstModuleQueued?.timestamp),
+		firstModuleStartMs: duration(metadata.startedAt, firstModuleStart?.timestamp),
+		firstOpenPageStartedMs: timingSummary?.firstOpenPageStartedDeltaMs ?? null,
+		firstRequest,
+		helperImportedMs: duration(metadata.startedAt, firstEvent?.benchmarkTimings?.scenarioHelperImportedAt),
+		helperRequest,
+		providerFactoryStartedMs: timingSummary?.providerFactoryStartedDeltaMs ?? null,
+		providerOptionCreatedMs: timingSummary?.providerOptionCreatedDeltaMs ?? null,
+		runnerRequest,
+		serverListeningMs: duration(metadata.startedAt, serverListening?.timestamp),
+		testRunStartMs: duration(metadata.startedAt, testRunStart?.timestamp),
+		vitestInitMs: duration(metadata.startedAt, vitestInit?.timestamp),
+		vitestProcessSpawnedMs: duration(metadata.startedAt, metadata.vitestProcessSpawnedAt),
+	};
+}
+
+function summarizeBrowserStartupMarks(marks, metadata) {
+	const readyMessages = Array.isArray(marks?.iframeReadyMessages) ? marks.iframeReadyMessages : [];
+	const readyTimes = readyMessages.map((message) => message.at).filter(Number.isFinite).sort((a, b) => a - b);
+
+	return {
+		firstIframeReadyMs: duration(metadata.startedAt, readyTimes[0]),
+		iframeReadyCount: readyTimes.length,
+		lastIframeReadyMs: duration(metadata.startedAt, readyTimes.at(-1)),
+		runnerDomContentLoadedMs: duration(metadata.startedAt, marks?.domContentLoadedAt),
+		runnerInitScriptMs: duration(metadata.startedAt, marks?.initScriptAt),
+		runnerLoadMs: duration(metadata.startedAt, marks?.loadAt),
+	};
+}
+
+function firstStartupEvent(events, predicate) {
+	return events.find(predicate) ?? null;
+}
+
+function firstStartupRequest(events, metadata, predicate) {
+	const start = events.find((event) => event.event === 'vite:request-start' && predicate(event));
+	if (!start) {
+		return null;
+	}
+
+	const end = events.find((event) => event.event === 'vite:request-end' && event.id === start.id);
+	return {
+		durationMs: end?.durationMs ?? null,
+		endMs: duration(metadata.startedAt, end?.timestamp),
+		method: start.method,
+		startMs: duration(metadata.startedAt, start.timestamp),
+		statusCode: end?.statusCode ?? null,
+		url: start.url,
 	};
 }
 
@@ -218,6 +320,9 @@ Local mode is a context row. Browser Run speedup is measured against \`browser-r
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 ${rows.join('\n')}
 ${renderTimingMarkdown(summaries)}
+${renderStartupMarkdown(summaries)}
+${renderReporterMarkdown(summaries)}
+${renderBrowserStartupMarkdown(summaries)}
 `;
 }
 
@@ -238,6 +343,69 @@ These timings come from the first benchmark event per mode and split the opaque 
 
 | Mode | Setup before first event | First openPage starts | Reserve lease | Acquire browser | Browser Run POST | CDP connect | Runner wait | Goto runner | First event after openPage | Test helper after openPage | First event after helper |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+${rows.join('\n')}
+`;
+}
+
+function renderBrowserStartupMarkdown(summaries) {
+	const rows = summaries.filter((summary) => summary.startupTimingSummary).map((summary) => {
+		const timing = summary.startupTimingSummary;
+		return `| ${summary.mode} | ${formatDuration(timing.runnerInitScriptMs)} | ${formatDuration(timing.runnerDomContentLoadedMs)} | ${formatDuration(timing.runnerLoadMs)} | ${formatDuration(timing.firstIframeReadyMs)} | ${formatDuration(timing.lastIframeReadyMs)} | ${formatOptionalCount(timing.iframeReadyCount)} | ${formatDuration(timing.firstModuleQueuedMs)} | ${formatDuration(timing.helperImportedMs)} | ${formatDuration(timing.firstEventMs)} |`;
+	});
+
+	if (!rows.length) {
+		return '';
+	}
+
+	return `
+## Browser Page Startup Trace
+
+These timings come from marks recorded in the Browser Run page before Vitest Browser Mode starts importing test modules.
+
+| Mode | Init script | DOMContentLoaded | Load | First iframe ready | Last iframe ready | Ready messages | First module queued | Helper imported | First event |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+${rows.join('\n')}
+`;
+}
+
+function renderReporterMarkdown(summaries) {
+	const rows = summaries.filter((summary) => summary.startupTimingSummary).map((summary) => {
+		const timing = summary.startupTimingSummary;
+		return `| ${summary.mode} | ${formatDuration(timing.vitestInitMs)} | ${formatDuration(timing.testRunStartMs)} | ${formatDuration(timing.browserInitMs)} | ${formatDuration(timing.firstModuleQueuedMs)} | ${formatDuration(timing.firstModuleCollectedMs)} | ${formatDuration(timing.firstModuleStartMs)} | ${formatDuration(timing.firstCaseReadyMs)} | ${formatDuration(timing.firstOpenPageStartedMs)} | ${formatDuration(timing.firstEventMs)} |`;
+	});
+
+	if (!rows.length) {
+		return '';
+	}
+
+	return `
+## Vitest Reporter Trace
+
+These timings come from Vitest reporter hooks and split the internal gap before Browser provider startup.
+
+| Mode | Vitest init | Test run start | Browser init | First module queued | First module collected | First module start | First case ready | First openPage starts | First event |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+${rows.join('\n')}
+`;
+}
+
+function renderStartupMarkdown(summaries) {
+	const rows = summaries.filter((summary) => summary.startupTimingSummary).map((summary) => {
+		const timing = summary.startupTimingSummary;
+		return `| ${summary.mode} | ${formatDuration(timing.vitestProcessSpawnedMs)} | ${formatDuration(timing.configImportedMs)} | ${formatDuration(timing.configResolvedMs)} | ${formatDuration(timing.serverListeningMs)} | ${formatRequestTiming(timing.firstRequest)} | ${formatDuration(timing.providerOptionCreatedMs)} | ${formatDuration(timing.providerFactoryStartedMs)} | ${formatDuration(timing.firstOpenPageStartedMs)} | ${formatRequestTiming(timing.runnerRequest)} | ${formatRequestTiming(timing.browserTestRequest)} | ${formatRequestTiming(timing.helperRequest)} | ${formatDuration(timing.helperImportedMs)} | ${formatDuration(timing.firstEventMs)} |`;
+	});
+
+	if (!rows.length) {
+		return '';
+	}
+
+	return `
+## Benchmark Startup Trace
+
+Request cells show response-end time relative to benchmark start, with request duration in parentheses.
+
+| Mode | Process spawned | Config imported | Config resolved | Server listening | First request | Provider option created | Provider factory starts | First openPage starts | Runner response | First test module response | Scenario helper response | Helper imported | First event |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 ${rows.join('\n')}
 `;
 }
@@ -324,6 +492,20 @@ function browserColor(event) {
 
 function formatCount(value) {
 	return value ? String(value) : 'n/a';
+}
+
+function formatOptionalCount(value) {
+	return Number.isFinite(value) ? String(value) : 'n/a';
+}
+
+function formatRequestTiming(request) {
+	if (!request) {
+		return 'n/a';
+	}
+
+	const end = formatDuration(request.endMs);
+	const duration = formatDuration(request.durationMs);
+	return duration === 'n/a' ? end : `${end} (${duration})`;
 }
 
 function formatDuration(ms) {

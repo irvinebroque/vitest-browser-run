@@ -31,6 +31,8 @@ interface BrowserRunPoolMetadata {
 	sessionsPerBrowser?: number | null;
 }
 
+type BrowserRunStartupMarks = Record<string, unknown>;
+
 export async function runProductionScenario(id: string): Promise<void> {
 	const scenario = getScenario(id);
 	const bootstrap = createScenarioBootstrap(id);
@@ -159,6 +161,7 @@ async function writeBenchmarkEvent(event: {
 	const path = `artifacts/benchmark/${event.mode}/events/${event.scenario.id}.json`;
 	await server.commands.writeFile(path, `${JSON.stringify({
 		benchmarkTimings: {
+			browserRunStartupMarks: readBrowserRunStartupMarks(),
 			scenarioHelperImportedAt,
 		},
 		benchmarkSessionsPerBrowser: readNumberMetaEnv('BENCHMARK_SESSIONS_PER_BROWSER', 0) || null,
@@ -213,6 +216,26 @@ function readBrowserRunPoolMetadata(): BrowserRunPoolMetadata {
 
 function readBrowserRunPoolMetadataFrom(scope: Window | typeof globalThis): BrowserRunPoolMetadata | undefined {
 	return (scope as typeof globalThis & { __CLOUDFLARE_BROWSER_RUN_POOL__?: BrowserRunPoolMetadata }).__CLOUDFLARE_BROWSER_RUN_POOL__;
+}
+
+function readBrowserRunStartupMarks(): BrowserRunStartupMarks | undefined {
+	try {
+		if (globalThis.parent && globalThis.parent !== globalThis) {
+			const parent = readBrowserRunStartupMarksFrom(globalThis.parent);
+			if (parent) {
+				return parent;
+			}
+		}
+	}
+	catch {
+		return readBrowserRunStartupMarksFrom(globalThis);
+	}
+
+	return readBrowserRunStartupMarksFrom(globalThis);
+}
+
+function readBrowserRunStartupMarksFrom(scope: Window | typeof globalThis): BrowserRunStartupMarks | undefined {
+	return (scope as typeof globalThis & { __CLOUDFLARE_BROWSER_RUN_STARTUP_MARKS__?: BrowserRunStartupMarks }).__CLOUDFLARE_BROWSER_RUN_STARTUP_MARKS__;
 }
 
 function getByTestId(appDocument: Document, testId: string): HTMLElement {

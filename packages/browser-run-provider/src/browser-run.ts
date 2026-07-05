@@ -139,6 +139,12 @@ interface BrowserRunOpenPageTiming {
 	errorAt?: number;
 }
 
+interface BrowserRunProviderTiming {
+	providerOptionCreatedAt: number;
+	providerFactoryStartedAt?: number;
+	providerFactoryEndedAt?: number;
+}
+
 interface BrowserRunAcquireResult {
 	browser: Browser;
 	browserRunSessionId: string;
@@ -152,6 +158,7 @@ interface BrowserRunSessionResponse {
 const unlimitedSessionsPerBrowser = 0;
 
 export function browserRunCdp(options: BrowserRunCdpOptions = {}): BrowserProviderOption<BrowserRunCdpOptions> {
+	const providerTiming: BrowserRunProviderTiming = { providerOptionCreatedAt: Date.now() };
 	const resolvedOptions = resolveBrowserRunCdpOptions(options);
 	const base = vitestPlaywright();
 
@@ -161,7 +168,10 @@ export function browserRunCdp(options: BrowserRunCdpOptions = {}): BrowserProvid
 		supportedBrowser: ['chromium'],
 		options: resolvedOptions,
 		providerFactory(project) {
-			return new BrowserRunCdpProvider(project, options, resolvedOptions);
+			providerTiming.providerFactoryStartedAt = Date.now();
+			const provider = new BrowserRunCdpProvider(project, options, resolvedOptions, providerTiming);
+			providerTiming.providerFactoryEndedAt = Date.now();
+			return provider;
 		},
 	};
 }
@@ -169,6 +179,7 @@ export function browserRunCdp(options: BrowserRunCdpOptions = {}): BrowserProvid
 export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 	private readonly sourceOptions: BrowserRunCdpOptions;
 	private readonly browserRunOptions: ResolvedBrowserRunCdpOptions;
+	private readonly providerTiming: BrowserRunProviderTiming;
 	private readonly leases: BrowserRunLease[] = [];
 	private readonly pendingLeases: PendingBrowserRunLease[] = [];
 	private readonly sessionLeases = new Map<string, BrowserRunLease>();
@@ -181,10 +192,11 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 	private capacityValidated = false;
 	private prewarmStarted = false;
 
-	constructor(project: TestProject, sourceOptions: BrowserRunCdpOptions, resolvedOptions: ResolvedBrowserRunCdpOptions) {
+	constructor(project: TestProject, sourceOptions: BrowserRunCdpOptions, resolvedOptions: ResolvedBrowserRunCdpOptions, providerTiming: BrowserRunProviderTiming) {
 		super(project, createBasePlaywrightOptions(resolvedOptions));
 		this.sourceOptions = sourceOptions;
 		this.browserRunOptions = resolvedOptions;
+		this.providerTiming = providerTiming;
 	}
 
 	async openPage(sessionId: string, url: string, options: { parallel: boolean }): Promise<void> {
@@ -702,6 +714,7 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 			browserRunTimings: {
 				lease: { ...lease.timing },
 				openPage: { ...timing },
+				provider: { ...this.providerTiming },
 			},
 			maxBrowsers: this.browserRunOptions.pool.maxBrowsers,
 			sessionId,
@@ -743,8 +756,56 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 }
 
 function createPoolMetadataAssignmentScript(metadata: Record<string, unknown>): string {
-	return `Object.defineProperty(globalThis, '__CLOUDFLARE_BROWSER_RUN_POOL__', { configurable: true, value: ${JSON.stringify(metadata)} });`;
+	return `Object.defineProperty(globalThis, '__CLOUDFLARE_BROWSER_RUN_POOL__', { configurable: true, value: ${JSON.stringify(metadata)} });${browserRunStartupMarksScript}`;
 }
+
+const browserRunStartupMarksScript = `
+(() => {
+	const key = '__CLOUDFLARE_BROWSER_RUN_STARTUP_MARKS__';
+	if (globalThis[key]?.installed) {
+		return;
+	}
+	const marks = {
+		domContentLoadedAt: document.readyState === 'loading' ? null : Date.now(),
+		iframeReadyMessages: [],
+		initScriptAt: Date.now(),
+		installed: true,
+		loadAt: document.readyState === 'complete' ? Date.now() : null,
+	};
+	Object.defineProperty(globalThis, key, { configurable: true, value: marks });
+	globalThis.addEventListener('DOMContentLoaded', () => {
+		marks.domContentLoadedAt ??= Date.now();
+	}, { once: true });
+	globalThis.addEventListener('load', () => {
+		marks.loadAt ??= Date.now();
+	}, { once: true });
+	globalThis.addEventListener('message', (event) => {
+		if (event.data?.event === 'ready') {
+			marks.iframeReadyMessages.push({
+				at: Date.now(),
+				iframeId: event.data.iframeId,
+				source: 'window-message',
+			});
+		}
+	});
+	const sessionId = globalThis.__CLOUDFLARE_BROWSER_RUN_POOL__?.sessionId;
+	if (sessionId && typeof BroadcastChannel === 'function') {
+		try {
+			const channel = new BroadcastChannel('vitest:' + sessionId);
+			Object.defineProperty(globalThis, '__CLOUDFLARE_BROWSER_RUN_STARTUP_CHANNEL__', { configurable: true, value: channel });
+			channel.addEventListener('message', (event) => {
+				if (event.data?.event === 'ready') {
+					marks.iframeReadyMessages.push({
+						at: Date.now(),
+						iframeId: event.data.iframeId,
+						source: 'broadcast-channel',
+					});
+				}
+			});
+		}
+		catch {}
+	}
+})();`;
 
 function setBrowserRunPoolMetadata(value: Record<string, unknown>): void {
 	Object.defineProperty(globalThis, '__CLOUDFLARE_BROWSER_RUN_POOL__', { configurable: true, value });
