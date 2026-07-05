@@ -7,8 +7,6 @@ export const browserApiHost = process.env.VITEST_BROWSER_API_HOST ?? '0.0.0.0';
 
 export const browserApiPort = Number(process.env.VITEST_BROWSER_API_PORT ?? '63315');
 
-export const appLatencyMs = process.env.BENCHMARK_APP_LATENCY_MS ?? '1000';
-
 export const benchmarkSessionsPerBrowser = Number(
 	process.env.BENCHMARK_SESSIONS_PER_BROWSER
 	?? process.env.CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER

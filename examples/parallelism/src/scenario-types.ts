@@ -27,13 +27,7 @@ export interface Scenario {
 	flags: string[];
 }
 
-export interface ScenarioAppLoadPhase {
-	durationMs: number;
-	label: string;
-}
-
 export interface ScenarioAppData {
-	appLatencyMs: number;
 	phaseLabels: string[];
 	recordsLoaded: number;
 	summary: string;

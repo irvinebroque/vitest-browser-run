@@ -31,7 +31,6 @@ export async function runProductionScenario(id: string): Promise<void> {
 	const scenario = getScenario(id);
 	const bootstrap = createScenarioBootstrap(id);
 	const mode = readMetaEnv('VITEST_BENCHMARK_MODE', 'ad-hoc');
-	const appLatencyMs = readNumberMetaEnv('BENCHMARK_APP_LATENCY_MS', 1000);
 	const startedAt = Date.now();
 	let appData: ScenarioAppData | undefined;
 	let status: ScenarioStatus = 'passed';
@@ -39,7 +38,7 @@ export async function runProductionScenario(id: string): Promise<void> {
 
 	try {
 		renderLoadingShell(bootstrap);
-		appData = await loadScenarioApp(bootstrap, { baseLatencyMs: appLatencyMs });
+		appData = loadScenarioApp(bootstrap);
 		renderReadyShell(bootstrap, appData);
 		await waitForScenarioReady(scenario.id);
 		assertScenarioState(scenario, bootstrap, appData);
@@ -94,7 +93,6 @@ function renderReadyShell(bootstrap: ScenarioBootstrap, appData: ScenarioAppData
 			<p data-testid="scenario-guardrail">${bootstrap.guardrail}</p>
 			<p data-testid="scenario-revenue">${bootstrap.formattedRevenue}</p>
 			<p data-testid="scenario-records">${appData.recordsLoaded}</p>
-			<p data-testid="scenario-app-latency">${appData.appLatencyMs}</p>
 			<p data-testid="scenario-summary">${appData.summary}</p>
 			<ol data-testid="scenario-load-phases">
 				${appData.phaseLabels.map((phase) => `<li>${phase}</li>`).join('')}
@@ -117,7 +115,7 @@ async function waitForScenarioReady(id: string): Promise<void> {
 			return;
 		}
 
-		await wait(25);
+		await delay(25);
 	}
 
 	throw new Error(`Timed out waiting for scenario ${id} to become ready.`);
@@ -143,7 +141,6 @@ function assertScenarioState(scenario: Scenario, bootstrap: ScenarioBootstrap, a
 	expect(getByTestId('scenario-guardrail').textContent).toBe(bootstrap.guardrail);
 	expect(getByTestId('scenario-revenue').textContent).toBe(formatScenarioCurrency(scenarioRevenue(scenario), scenario.locale));
 	expect(getByTestId('scenario-records').textContent).toBe(String(appData.recordsLoaded));
-	expect(getByTestId('scenario-app-latency').textContent).toBe(String(appData.appLatencyMs));
 	expect(getByTestId('scenario-summary').textContent).toBe(appData.summary);
 	for (const phase of appData.phaseLabels) {
 		expect(getByTestId('scenario-load-phases').textContent).toContain(phase);
@@ -167,7 +164,6 @@ async function writeBenchmarkEvent(event: {
 }): Promise<void> {
 	const path = `artifacts/benchmark/${event.mode}/events/${event.scenario.id}.json`;
 	await server.commands.writeFile(path, `${JSON.stringify({
-		appLatencyMs: event.appData?.appLatencyMs ?? null,
 		benchmarkSessionsPerBrowser: readNumberMetaEnv('BENCHMARK_SESSIONS_PER_BROWSER', 0) || null,
 		browserLeaseId: event.browserRunPool.browserLeaseId ?? null,
 		browserLeaseIndex: event.browserRunPool.browserLeaseIndex ?? null,

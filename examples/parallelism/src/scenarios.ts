@@ -2,7 +2,6 @@ import { scenarioManifest } from './scenario-manifest';
 import type {
 	Scenario,
 	ScenarioAppData,
-	ScenarioAppLoadPhase,
 	ScenarioBootstrap,
 	ScenarioDataSize,
 	ScenarioFeatureState,
@@ -98,49 +97,20 @@ export function createScenarioBootstrap(id: string): ScenarioBootstrap {
 	};
 }
 
-export async function loadScenarioApp(bootstrap: ScenarioBootstrap, options: { baseLatencyMs?: number } = {}): Promise<ScenarioAppData> {
-	const latencyMs = scenarioAppLatencyMs(bootstrap.scenario, options.baseLatencyMs ?? 1000);
-	const phases = scenarioAppLoadPhases(bootstrap, latencyMs);
-
-	for (const phase of phases) {
-		await wait(phase.durationMs);
-	}
-
+export function loadScenarioApp(bootstrap: ScenarioBootstrap): ScenarioAppData {
 	const recordsLoaded = scenarioRecordCount(bootstrap.scenario);
 	return {
-		appLatencyMs: latencyMs,
-		phaseLabels: phases.map((phase) => phase.label),
+		phaseLabels: scenarioAppLoadPhases(bootstrap),
 		recordsLoaded,
 		summary: `${bootstrap.title} loaded ${recordsLoaded.toLocaleString('en-US')} records for ${bootstrap.regionLabel}`,
 	};
 }
 
-export function scenarioAppLatencyMs(scenario: Scenario, baseLatencyMs = 1000): number {
-	if (baseLatencyMs <= 0) {
-		return 0;
-	}
-
-	const multiplier = clamp(
-		surfaceLatencyWeight[scenario.surface]
-		* planLatencyWeight[scenarioPlan(scenario)]
-		* regionLatencyWeight[scenarioRegion(scenario)]
-		* dataLatencyWeight[scenarioDataSize(scenario)]
-		* featureLatencyWeight[scenarioFeatureState(scenario)]
-		* scenarioLatencyJitter(scenario),
-		0.55,
-		1.75,
-	);
-
-	return Math.max(150, Math.round(baseLatencyMs * multiplier));
-}
-
-export function scenarioAppLoadPhases(bootstrap: ScenarioBootstrap, latencyMs: number): ScenarioAppLoadPhase[] {
-	const authDurationMs = Math.round(latencyMs * 0.2);
-	const dataDurationMs = Math.round(latencyMs * 0.55);
+export function scenarioAppLoadPhases(bootstrap: ScenarioBootstrap): string[] {
 	return [
-		{ durationMs: authDurationMs, label: `Authenticate ${bootstrap.scenario.role} session` },
-		{ durationMs: dataDurationMs, label: `Fetch ${bootstrap.scaleLabel.toLowerCase()} ${bootstrap.scenario.surface} data` },
-		{ durationMs: Math.max(0, latencyMs - authDurationMs - dataDurationMs), label: `Resolve ${bootstrap.stateLabel.toLowerCase()} flags` },
+		`Authenticate ${bootstrap.scenario.role} session`,
+		`Fetch ${bootstrap.scaleLabel.toLowerCase()} ${bootstrap.scenario.surface} data`,
+		`Resolve ${bootstrap.stateLabel.toLowerCase()} flags`,
 	];
 }
 
@@ -239,59 +209,4 @@ function escapeHtml(value: string): string {
 				return '&#39;';
 		}
 	});
-}
-
-const surfaceLatencyWeight = {
-	dashboard: 1.02,
-	billing: 1.08,
-	checkout: 1.14,
-	admin: 1.1,
-	settings: 0.92,
-	'audit-log': 1.18,
-} satisfies Record<ScenarioSurface, number>;
-
-const planLatencyWeight = {
-	free: 0.9,
-	pro: 1,
-	enterprise: 1.14,
-} satisfies Record<ScenarioPlan, number>;
-
-const regionLatencyWeight = {
-	na: 0.96,
-	eu: 1,
-	apac: 1.08,
-	mea: 1.12,
-} satisfies Record<ScenarioRegion, number>;
-
-const dataLatencyWeight = {
-	empty: 0.74,
-	standard: 1,
-	large: 1.34,
-} satisfies Record<ScenarioDataSize, number>;
-
-const featureLatencyWeight = {
-	control: 0.94,
-	rollout: 1.04,
-	beta: 1.12,
-} satisfies Record<ScenarioFeatureState, number>;
-
-function scenarioLatencyJitter(scenario: Scenario): number {
-	let hash = 0;
-	for (const character of scenario.id) {
-		hash = (hash * 31 + character.charCodeAt(0)) % 997;
-	}
-
-	return 0.94 + (hash % 13) / 100;
-}
-
-function clamp(value: number, min: number, max: number): number {
-	return Math.min(max, Math.max(min, value));
-}
-
-async function wait(ms: number): Promise<void> {
-	if (ms <= 0) {
-		return;
-	}
-
-	await new Promise((resolve) => setTimeout(resolve, ms));
 }

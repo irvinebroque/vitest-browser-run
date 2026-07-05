@@ -5,7 +5,6 @@ import { browserRunCdp } from '@cloudflare/vitest-browser-run-provider';
 import {
 	benchmarkSessionsPerBrowser,
 	benchmarkInclude,
-	appLatencyMs,
 	browserApiHost,
 	browserApiPort,
 	browserRunAcquireIntervalMs,
@@ -34,7 +33,6 @@ export default defineConfig({
 		fileParallelism: true,
 		maxWorkers: browserRunMaxWorkers,
 		env: {
-			BENCHMARK_APP_LATENCY_MS: appLatencyMs,
 			BENCHMARK_SESSIONS_PER_BROWSER: String(benchmarkSessionsPerBrowser),
 			CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS: String(browserRunMaxBrowsers),
 			CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER: String(browserRunSessionsPerBrowser),

@@ -132,7 +132,7 @@ The benchmark does not expose a separate total-concurrency setting. Browser Run 
 
 Supported profiles are `default` (96 scenarios), `full` (192), `large` (384), `xlarge` (768), and `stress` (1536). `BENCHMARK_SCENARIO_COUNT=<n>` overrides the profile size.
 
-`BENCHMARK_APP_LATENCY_MS` controls the base app load budget for benchmark scenarios. The example app scales that latency per scenario using surface, plan, region, account size, and rollout state rather than sleeping inside the test.
+Benchmark scenarios do not add synthetic app latency. They measure the actual scenario render, data shaping, assertions, provider, and Vitest Browser Mode overhead.
 
 Compare fair parallel modes:
 
