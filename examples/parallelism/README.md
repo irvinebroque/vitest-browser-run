@@ -119,7 +119,7 @@ CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS=1000 \
 pnpm bench:compare
 ```
 
-That compares local Chrome with one browser and four workers, Browser Run with one hosted browser and four pages/contexts, and Browser Run with four hosted browsers and four pages/contexts per browser.
+That runs local Chrome with one browser and four workers, Browser Run with one hosted browser and four pages/contexts, and Browser Run with four hosted browsers and four pages/contexts per browser. Local Chrome is reported as context only; Browser Run speedup compares pooled Browser Run against `browser-run-single`.
 
 Profiles:
 
@@ -144,7 +144,7 @@ Compare fair parallel modes in one command:
 pnpm bench:compare
 ```
 
-`bench:compare` runs `local-parallel`, `browser-run-single`, and `browser-run`. `bench:local:serial` remains available as a baseline, but it is not part of the default comparison because its worker cap intentionally differs.
+`bench:compare` runs `local-parallel`, `browser-run-single`, and `browser-run`. `bench:local:serial` remains available for local-only checks, but it is not part of the default comparison because its worker cap intentionally differs. Reported overlap is observed from scenario event windows; it is not the configured worker cap.
 
 The local modes use system Chrome by default. Override the channel if your local browser is different:
 

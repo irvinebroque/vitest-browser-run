@@ -37,7 +37,8 @@ const modeConfigs = {
 	},
 };
 
-const modes = process.argv.slice(2).length ? process.argv.slice(2) : ['local-parallel', 'browser-run-single', 'browser-run'];
+const cliModes = process.argv.slice(2).filter((arg) => arg !== '--');
+const modes = cliModes.length ? cliModes : ['local-parallel', 'browser-run-single', 'browser-run'];
 const failures = [];
 const scenarioGenerationEnv = getScenarioGenerationEnv();
 let shouldRestoreScenarios = false;
@@ -107,11 +108,12 @@ try {
 	}
 
 	const summaries = await writeBenchmarkReport(modes);
+	const browserRunBaseline = summaries.find((summary) => summary.mode === 'browser-run-single');
 
 	console.log('\nBenchmark summary');
-	console.log('Mode                  Scenarios  Browsers  Max concurrency  Max/browser  Wall time');
+	console.log('Mode                  Scenarios  Browsers  Capacity  Observed overlap  Max/browser  Wall time  Browser Run speedup');
 	for (const summary of summaries) {
-		console.log(`${summary.mode.padEnd(22)}${String(summary.scenarioCount).padStart(9)}${formatCount(summary.browserSessionCount).padStart(10)}${String(summary.maxConcurrency).padStart(17)}${formatCount(summary.maxPerBrowserConcurrency).padStart(13)}${formatDuration(summary.wallTimeMs).padStart(11)}`);
+		console.log(`${summary.mode.padEnd(22)}${String(summary.scenarioCount).padStart(9)}${formatCount(summary.browserSessionCount).padStart(10)}${formatCount(summary.configuredCapacity).padStart(10)}${String(summary.maxConcurrency).padStart(18)}${formatCount(summary.maxPerBrowserConcurrency).padStart(13)}${formatDuration(summary.wallTimeMs).padStart(11)}${browserRunSpeedup(summary, browserRunBaseline).padStart(21)}`);
 	}
 
 	if (failures.length) {
@@ -160,6 +162,14 @@ function formatDuration(ms) {
 
 function formatCount(value) {
 	return value ? String(value) : 'n/a';
+}
+
+function browserRunSpeedup(summary, browserRunBaseline) {
+	if (!summary.mode.startsWith('browser-run') || !browserRunBaseline?.wallTimeMs || !summary.wallTimeMs) {
+		return 'n/a';
+	}
+
+	return `${(browserRunBaseline.wallTimeMs / summary.wallTimeMs).toFixed(1)}x`;
 }
 
 function browserRunModeEnv(maxBrowsers) {

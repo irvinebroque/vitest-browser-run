@@ -126,13 +126,13 @@ CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=4 \
 pnpm bench:compare
 ```
 
-This compares local Chrome with one browser and four workers, Browser Run with one hosted browser and four pages/contexts, and Browser Run with four hosted browsers and four pages/contexts per browser.
+This runs local Chrome with one browser and four workers, Browser Run with one hosted browser and four pages/contexts, and Browser Run with four hosted browsers and four pages/contexts per browser. Local Chrome is reported as context only; Browser Run speedup compares pooled Browser Run against `browser-run-single`.
 
 The benchmark does not expose a separate total-concurrency setting. Browser Run benchmark `maxWorkers` is derived from `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS * BENCHMARK_SESSIONS_PER_BROWSER`.
 
 Supported profiles are `default` (96 scenarios), `full` (192), `large` (384), `xlarge` (768), and `stress` (1536). `BENCHMARK_SCENARIO_COUNT=<n>` overrides the profile size.
 
-Benchmark scenarios do not add synthetic app latency. They measure the actual scenario render, data shaping, assertions, provider, and Vitest Browser Mode overhead.
+Benchmark scenarios do not add synthetic app latency. They measure the actual scenario route load, render, data shaping, assertions, provider, and Vitest Browser Mode overhead. Reported overlap is observed from scenario event windows; it is not the configured worker cap.
 
 Compare fair parallel modes:
 

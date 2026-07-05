@@ -68,6 +68,7 @@ function summarizeMode(mode, events, metadata) {
 	return {
 		browserGroups,
 		browserSessionCount: browserGroups.length,
+		configuredCapacity: configuredCapacity(mode, metadata),
 		events,
 		failed,
 		maxConcurrency: maxConcurrency(events),
@@ -78,6 +79,25 @@ function summarizeMode(mode, events, metadata) {
 		scenarioCount: events.length,
 		wallTimeMs,
 	};
+}
+
+function configuredCapacity(mode, metadata) {
+	if (mode === 'local-serial') {
+		return 1;
+	}
+
+	if (mode === 'local-parallel') {
+		return positiveNumber(metadata.benchmarkSessionsPerBrowser);
+	}
+
+	const maxBrowsers = positiveNumber(metadata.browserRunMaxBrowsers);
+	const sessionsPerBrowser = positiveNumber(metadata.browserRunSessionsPerBrowser);
+	return maxBrowsers && sessionsPerBrowser ? maxBrowsers * sessionsPerBrowser : 0;
+}
+
+function positiveNumber(value) {
+	const number = Number(value);
+	return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
 function groupEventsByBrowser(events) {
@@ -137,23 +157,24 @@ function maxConcurrency(events) {
 }
 
 function renderMarkdown(summaries) {
-	const baseline = summaries.find((summary) => summary.mode === 'local-serial')?.wallTimeMs || summaries[0]?.wallTimeMs || 0;
+	const browserRunBaseline = summaries.find((summary) => summary.mode === 'browser-run-single');
 	const rows = summaries.map((summary) => {
-		const speedup = summary.wallTimeMs > 0 && baseline > 0 ? `${(baseline / summary.wallTimeMs).toFixed(1)}x` : 'n/a';
-		return `| ${summary.mode} | ${summary.scenarioCount} | ${formatCount(summary.browserSessionCount)} | ${summary.maxConcurrency} | ${formatCount(summary.maxPerBrowserConcurrency)} | ${formatDuration(summary.wallTimeMs)} | ${speedup} | ${summary.passed}/${summary.failed} |`;
+		return `| ${summary.mode} | ${summary.scenarioCount} | ${formatCount(summary.browserSessionCount)} | ${formatCount(summary.configuredCapacity)} | ${summary.maxConcurrency} | ${formatCount(summary.maxPerBrowserConcurrency)} | ${formatDuration(summary.wallTimeMs)} | ${browserRunSpeedup(summary, browserRunBaseline)} | ${summary.passed}/${summary.failed} |`;
 	});
 
 	return `# Browser Benchmark Summary
 
-| Mode | Scenarios | Browser sessions | Max concurrency | Max/browser | Wall time | Speedup vs baseline | Passed/failed |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+Local mode is a context row. Browser Run speedup is measured against \`browser-run-single\`, not local Chrome.
+
+| Mode | Scenarios | Browser sessions | Configured capacity | Observed overlap | Max/browser | Wall time | Browser Run speedup | Passed/failed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 ${rows.join('\n')}
 `;
 }
 
 function renderHtml(summaries) {
-	const baseline = summaries.find((summary) => summary.mode === 'local-serial')?.wallTimeMs || summaries[0]?.wallTimeMs || 0;
-	const cards = summaries.map((summary) => renderModeCard(summary, baseline)).join('\n');
+	const browserRunBaseline = summaries.find((summary) => summary.mode === 'browser-run-single');
+	const cards = summaries.map((summary) => renderModeCard(summary)).join('\n');
 
 	return `<!doctype html>
 <html lang="en">
@@ -175,14 +196,14 @@ function renderHtml(summaries) {
   </style>
 </head>
 <body>
-  <main>
-    <h1>Browser benchmark report</h1>
-    <p>This report shows the same production-style scenario matrix across benchmark modes. Timelines show observed file-level overlap.</p>
-    <table>
-      <thead><tr><th>Mode</th><th>Scenarios</th><th>Browser sessions</th><th>Max concurrency</th><th>Max/browser</th><th>Wall time</th><th>Speedup</th><th>Passed/failed</th></tr></thead>
-      <tbody>
-        ${summaries.map((summary) => renderSummaryRow(summary, baseline)).join('\n')}
-      </tbody>
+	<main>
+	    <h1>Browser benchmark report</h1>
+	    <p>This report shows the same scenario matrix across benchmark modes. Local mode is a context row; Browser Run speedup compares hosted browser pooling against <code>browser-run-single</code>. Timelines show observed file-level overlap, not the configured worker cap.</p>
+	    <table>
+	      <thead><tr><th>Mode</th><th>Scenarios</th><th>Browser sessions</th><th>Configured capacity</th><th>Observed overlap</th><th>Max/browser</th><th>Wall time</th><th>Browser Run speedup</th><th>Passed/failed</th></tr></thead>
+	      <tbody>
+	        ${summaries.map((summary) => renderSummaryRow(summary, browserRunBaseline)).join('\n')}
+	      </tbody>
     </table>
     ${cards}
   </main>
@@ -190,9 +211,8 @@ function renderHtml(summaries) {
 </html>`;
 }
 
-function renderSummaryRow(summary, baseline) {
-	const speedup = summary.wallTimeMs > 0 && baseline > 0 ? `${(baseline / summary.wallTimeMs).toFixed(1)}x` : 'n/a';
-	return `<tr><td><code>${escapeHtml(summary.mode)}</code></td><td>${summary.scenarioCount}</td><td>${formatCount(summary.browserSessionCount)}</td><td>${summary.maxConcurrency}</td><td>${formatCount(summary.maxPerBrowserConcurrency)}</td><td>${formatDuration(summary.wallTimeMs)}</td><td>${speedup}</td><td>${summary.passed}/${summary.failed}</td></tr>`;
+function renderSummaryRow(summary, browserRunBaseline) {
+	return `<tr><td><code>${escapeHtml(summary.mode)}</code></td><td>${summary.scenarioCount}</td><td>${formatCount(summary.browserSessionCount)}</td><td>${formatCount(summary.configuredCapacity)}</td><td>${summary.maxConcurrency}</td><td>${formatCount(summary.maxPerBrowserConcurrency)}</td><td>${formatDuration(summary.wallTimeMs)}</td><td>${browserRunSpeedup(summary, browserRunBaseline)}</td><td>${summary.passed}/${summary.failed}</td></tr>`;
 }
 
 function renderModeCard(summary) {
@@ -207,15 +227,23 @@ function renderModeCard(summary) {
 		return `<span class="bar ${event.status === 'failed' ? 'failed' : ''}" style="left: ${left}%; width: ${width}%; top: ${top}px; background: ${color}" title="${escapeHtml(title)}"></span>`;
 	}).join('\n');
 	const browserBreakdown = summary.browserGroups.length
-		? `<ul>${summary.browserGroups.map((group) => `<li>Browser ${escapeHtml(group.browserLeaseId ?? group.key)}: ${group.events.length} scenarios, max concurrency ${group.maxConcurrency}</li>`).join('')}</ul>`
+		? `<ul>${summary.browserGroups.map((group) => `<li>Browser ${escapeHtml(group.browserLeaseId ?? group.key)}: ${group.events.length} scenarios, max observed overlap ${group.maxConcurrency}</li>`).join('')}</ul>`
 		: '<p>No provider browser-session metadata was recorded for this mode.</p>';
 
 	return `<section class="mode">
   <h2>${escapeHtml(summary.mode)}</h2>
-  <p>${summary.scenarioCount} scenarios, ${formatCount(summary.browserSessionCount)} browser sessions, max concurrency ${summary.maxConcurrency}, max/browser ${formatCount(summary.maxPerBrowserConcurrency)}, wall time ${formatDuration(summary.wallTimeMs)}.</p>
+  <p>${summary.scenarioCount} scenarios, ${formatCount(summary.browserSessionCount)} browser sessions, configured capacity ${formatCount(summary.configuredCapacity)}, observed overlap ${summary.maxConcurrency}, max/browser ${formatCount(summary.maxPerBrowserConcurrency)}, wall time ${formatDuration(summary.wallTimeMs)}.</p>
   ${browserBreakdown}
   <div class="timeline" style="height: ${Math.max(96, 24 + Math.min(summary.events.length, 12) * 12)}px">${bars}</div>
 </section>`;
+}
+
+function browserRunSpeedup(summary, browserRunBaseline) {
+	if (!summary.mode.startsWith('browser-run') || !browserRunBaseline?.wallTimeMs || !summary.wallTimeMs) {
+		return 'n/a';
+	}
+
+	return `${(browserRunBaseline.wallTimeMs / summary.wallTimeMs).toFixed(1)}x`;
 }
 
 function browserColor(event) {
@@ -260,8 +288,13 @@ function escapeHtml(value) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-	const summaries = await writeBenchmarkReport(process.argv.slice(2));
+	const summaries = await writeBenchmarkReport(cliModes());
+	const browserRunBaseline = summaries.find((summary) => summary.mode === 'browser-run-single');
 	for (const summary of summaries) {
-		console.log(`${summary.mode}: ${summary.scenarioCount} scenarios, ${formatCount(summary.browserSessionCount)} browser sessions, max concurrency ${summary.maxConcurrency}, max/browser ${formatCount(summary.maxPerBrowserConcurrency)}, wall time ${formatDuration(summary.wallTimeMs)}`);
+		console.log(`${summary.mode}: ${summary.scenarioCount} scenarios, ${formatCount(summary.browserSessionCount)} browser sessions, configured capacity ${formatCount(summary.configuredCapacity)}, observed overlap ${summary.maxConcurrency}, max/browser ${formatCount(summary.maxPerBrowserConcurrency)}, wall time ${formatDuration(summary.wallTimeMs)}, Browser Run speedup ${browserRunSpeedup(summary, browserRunBaseline)}`);
 	}
+}
+
+function cliModes() {
+	return process.argv.slice(2).filter((arg) => arg !== '--');
 }
