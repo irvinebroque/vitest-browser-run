@@ -19,10 +19,13 @@ import {
 
 type ScenarioStatus = 'passed' | 'failed';
 
+const scenarioHelperImportedAt = Date.now();
+
 interface BrowserRunPoolMetadata {
 	browserLeaseId?: number;
 	browserLeaseIndex?: number;
 	browserRunSessionId?: string;
+	browserRunTimings?: Record<string, unknown>;
 	maxBrowsers?: number;
 	sessionId?: string;
 	sessionsPerBrowser?: number | null;
@@ -155,6 +158,9 @@ async function writeBenchmarkEvent(event: {
 }): Promise<void> {
 	const path = `artifacts/benchmark/${event.mode}/events/${event.scenario.id}.json`;
 	await server.commands.writeFile(path, `${JSON.stringify({
+		benchmarkTimings: {
+			scenarioHelperImportedAt,
+		},
 		benchmarkSessionsPerBrowser: readNumberMetaEnv('BENCHMARK_SESSIONS_PER_BROWSER', 0) || null,
 		benchmarkContractId: readMetaEnv('BENCHMARK_CONTRACT_ID', 'unknown'),
 		benchmarkProviderTopology: readMetaEnv('BENCHMARK_PROVIDER_TOPOLOGY', 'unknown'),
@@ -162,6 +168,7 @@ async function writeBenchmarkEvent(event: {
 		browserLeaseId: event.browserRunPool.browserLeaseId ?? null,
 		browserLeaseIndex: event.browserRunPool.browserLeaseIndex ?? null,
 		browserRunSessionId: event.browserRunPool.browserRunSessionId ?? null,
+		browserRunTimings: event.browserRunPool.browserRunTimings ?? null,
 		dataSize: event.scenario.dataSize ?? null,
 		durationMs: event.durationMs,
 		endTime: event.endTime,

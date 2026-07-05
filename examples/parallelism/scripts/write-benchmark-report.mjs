@@ -77,9 +77,56 @@ function summarizeMode(mode, events, metadata) {
 		mode,
 		passed,
 		scenarioCount: events.length,
+		timingSummary: summarizeBrowserRunTimings(events, metadata),
 		topology: metadata.benchmarkProviderTopology || 'unknown',
 		wallTimeMs,
 	};
+}
+
+function summarizeBrowserRunTimings(events, metadata) {
+	const timedEvents = events.filter((event) => event.browserRunTimings?.openPage);
+	if (!timedEvents.length) {
+		return null;
+	}
+
+	const firstEvent = [...timedEvents].sort((a, b) => a.startTime - b.startTime)[0];
+	const openPage = firstEvent.browserRunTimings.openPage ?? {};
+	const lease = firstEvent.browserRunTimings.lease ?? {};
+	const firstAttempt = lease.sessionAttempts?.[0] ?? {};
+	const leaseFirstEvents = groupEventsByBrowser(timedEvents).map((group) => {
+		const first = group.events.sort((a, b) => a.startTime - b.startTime)[0];
+		return {
+			browserLeaseId: group.browserLeaseId,
+			browserLeaseIndex: group.browserLeaseIndex,
+			browserRunSessionId: group.browserRunSessionId,
+			firstEventDeltaMs: duration(metadata.startedAt, first.startTime),
+		};
+	});
+
+	return {
+		setupBeforeFirstEventMs: duration(metadata.startedAt, firstEvent.startTime),
+		firstOpenPageStartedDeltaMs: duration(metadata.startedAt, openPage.openPageStartedAt),
+		reserveMs: duration(openPage.reserveStartedAt, openPage.reserveEndedAt),
+		acquireMs: duration(lease.acquireStartedAt, lease.acquireEndedAt),
+		queueWaitMs: duration(firstAttempt.queueStartedAt, firstAttempt.queueEnteredAt),
+		acquireSlotWaitMs: duration(firstAttempt.acquireSlotWaitStartedAt, firstAttempt.acquireSlotWaitEndedAt),
+		sessionPostMs: duration(firstAttempt.sessionPostStartedAt, firstAttempt.sessionPostEndedAt),
+		cdpConnectMs: duration(lease.cdpConnectStartedAt, lease.cdpConnectEndedAt),
+		contextMs: duration(openPage.contextStartedAt, openPage.contextEndedAt),
+		pageMs: duration(openPage.pageStartedAt, openPage.pageEndedAt),
+		waitRunnerMs: duration(openPage.waitRunnerStartedAt, openPage.waitRunnerEndedAt),
+		waitPublicOriginMs: duration(openPage.waitPublicOriginStartedAt, openPage.waitPublicOriginEndedAt),
+		gotoMs: duration(openPage.gotoStartedAt, openPage.gotoEndedAt),
+		openPageTotalMs: duration(openPage.openPageStartedAt, openPage.openPageEndedAt),
+		firstEventAfterOpenPageMs: duration(openPage.openPageEndedAt, firstEvent.startTime),
+		testHelperAfterOpenPageMs: duration(openPage.openPageEndedAt, firstEvent.benchmarkTimings?.scenarioHelperImportedAt),
+		firstEventAfterTestHelperMs: duration(firstEvent.benchmarkTimings?.scenarioHelperImportedAt, firstEvent.startTime),
+		leaseFirstEvents,
+	};
+}
+
+function duration(start, end) {
+	return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : null;
 }
 
 function configuredCapacity(mode, metadata) {
@@ -170,6 +217,28 @@ Local mode is a context row. Browser Run speedup is measured against \`browser-r
 | Mode | Provider/topology | Scenarios | Browser sessions | Configured capacity | Observed overlap | Max/browser | Wall time | Browser Run speedup | Passed/failed |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 ${rows.join('\n')}
+${renderTimingMarkdown(summaries)}
+`;
+}
+
+function renderTimingMarkdown(summaries) {
+	const rows = summaries.filter((summary) => summary.timingSummary).map((summary) => {
+		const timing = summary.timingSummary;
+		return `| ${summary.mode} | ${formatDuration(timing.setupBeforeFirstEventMs)} | ${formatDuration(timing.firstOpenPageStartedDeltaMs)} | ${formatDuration(timing.reserveMs)} | ${formatDuration(timing.acquireMs)} | ${formatDuration(timing.sessionPostMs)} | ${formatDuration(timing.cdpConnectMs)} | ${formatDuration(timing.waitRunnerMs)} | ${formatDuration(timing.gotoMs)} | ${formatDuration(timing.firstEventAfterOpenPageMs)} | ${formatDuration(timing.testHelperAfterOpenPageMs)} | ${formatDuration(timing.firstEventAfterTestHelperMs)} |`;
+	});
+
+	if (!rows.length) {
+		return '';
+	}
+
+	return `
+## Browser Run First-Event Timing
+
+These timings come from the first benchmark event per mode and split the opaque setup-before-first-event bucket into provider phases.
+
+| Mode | Setup before first event | First openPage starts | Reserve lease | Acquire browser | Browser Run POST | CDP connect | Runner wait | Goto runner | First event after openPage | Test helper after openPage | First event after helper |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+${rows.join('\n')}
 `;
 }
 
@@ -258,8 +327,11 @@ function formatCount(value) {
 }
 
 function formatDuration(ms) {
-	if (!ms) {
+	if (ms === 0) {
 		return '0s';
+	}
+	if (!Number.isFinite(ms)) {
+		return 'n/a';
 	}
 
 	const seconds = ms / 1000;

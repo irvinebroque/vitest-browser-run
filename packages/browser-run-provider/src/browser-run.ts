@@ -80,12 +80,63 @@ interface BrowserRunLease {
 	browserRunSessionId: string;
 	activeSessionIds: Set<string>;
 	closed: boolean;
+	timing: BrowserRunLeaseTiming;
 }
 
 interface PendingBrowserRunLease {
 	id: number;
 	activeSessionIds: Set<string>;
 	promise: Promise<BrowserRunLease>;
+	timing: BrowserRunLeaseTiming;
+}
+
+interface BrowserRunLeaseTiming {
+	pendingStartedAt: number;
+	acquireStartedAt?: number;
+	acquireEndedAt?: number;
+	sessionAttempts?: BrowserRunSessionAttemptTiming[];
+	sessionCreatedAt?: number;
+	cdpConnectStartedAt?: number;
+	cdpConnectEndedAt?: number;
+	leaseReadyAt?: number;
+	errorAt?: number;
+}
+
+interface BrowserRunSessionAttemptTiming {
+	queueStartedAt: number;
+	queueEnteredAt?: number;
+	acquireSlotWaitStartedAt?: number;
+	acquireSlotWaitEndedAt?: number;
+	sessionPostStartedAt?: number;
+	sessionPostEndedAt?: number;
+	rateLimitedAt?: number;
+	retryAfterMs?: number;
+	errorAt?: number;
+}
+
+interface BrowserRunOpenPageTiming {
+	openPageStartedAt: number;
+	reserveStartedAt?: number;
+	reserveEndedAt?: number;
+	contextStartedAt?: number;
+	contextEndedAt?: number;
+	pageStartedAt?: number;
+	pageEndedAt?: number;
+	initScriptStartedAt?: number;
+	initScriptEndedAt?: number;
+	waitRunnerStartedAt?: number;
+	waitLocalInitialStartedAt?: number;
+	waitLocalInitialEndedAt?: number;
+	waitPublicOriginStartedAt?: number;
+	waitPublicOriginEndedAt?: number;
+	waitLocalFinalStartedAt?: number;
+	waitLocalFinalEndedAt?: number;
+	waitRunnerEndedAt?: number;
+	gotoStartedAt?: number;
+	gotoEndedAt?: number;
+	metadataUpdatedAt?: number;
+	openPageEndedAt?: number;
+	errorAt?: number;
 }
 
 interface BrowserRunAcquireResult {
@@ -137,6 +188,7 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 	}
 
 	async openPage(sessionId: string, url: string, options: { parallel: boolean }): Promise<void> {
+		const timing: BrowserRunOpenPageTiming = { openPageStartedAt: Date.now() };
 		this.validateProjectCapacity();
 		this.throwIfClosing();
 		this.startPrewarmIfNeeded();
@@ -145,25 +197,38 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 			await this.closeSessionResources(sessionId);
 		}
 
+		timing.reserveStartedAt = Date.now();
 		const lease = await this.reserveLease(sessionId);
+		timing.reserveEndedAt = Date.now();
 		let context: BrowserContext | undefined;
 		let page: Page | undefined;
 
 		try {
+			timing.contextStartedAt = Date.now();
 			context = await this.createBrowserRunContext(lease);
+			timing.contextEndedAt = Date.now();
+			timing.pageStartedAt = Date.now();
 			page = await context.newPage();
-			await page.addInitScript({ content: this.createPoolMetadataScript(sessionId, lease) });
+			timing.pageEndedAt = Date.now();
+			timing.initScriptStartedAt = Date.now();
+			await page.addInitScript({ content: this.createPoolMetadataScript(sessionId, lease, timing) });
+			timing.initScriptEndedAt = Date.now();
 
 			this.contexts.set(sessionId, context as never);
 			this.pages.set(sessionId, page as never);
 
-			await waitForBrowserRunRunnerReady(url, this.sourceOptions);
+			await waitForBrowserRunRunnerReady(url, this.sourceOptions, timing);
 			this.throwIfClosing();
 
 			const resolvedUrl = resolveBrowserRunRunnerUrl(url, getBrowserRunPublicOrigin(this.sourceOptions));
+			timing.gotoStartedAt = Date.now();
 			await page.goto(resolvedUrl, { timeout: 0 });
+			timing.gotoEndedAt = Date.now();
+			timing.openPageEndedAt = Date.now();
+			await this.updatePoolMetadata(page, sessionId, lease, timing);
 		}
 		catch (error) {
+			timing.errorAt = Date.now();
 			await page?.close().catch(() => {});
 			await this.closeContextIfOwned(context).catch(() => {});
 			this.pages.delete(sessionId);
@@ -312,22 +377,26 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 
 	private startPendingLease(): PendingBrowserRunLease {
 		this.throwIfClosing();
+		const timing: BrowserRunLeaseTiming = { pendingStartedAt: Date.now() };
 
 		const pending: PendingBrowserRunLease = {
 			id: this.nextLeaseId,
 			activeSessionIds: new Set(),
 			promise: undefined as unknown as Promise<BrowserRunLease>,
+			timing,
 		};
 		this.nextLeaseId += 1;
 
-		pending.promise = this.acquireBrowser()
+		pending.promise = this.acquireBrowser(timing)
 			.then(async (acquired) => {
+				timing.leaseReadyAt = Date.now();
 				const lease: BrowserRunLease = {
 					id: pending.id,
 					browser: acquired.browser,
 					browserRunSessionId: acquired.browserRunSessionId,
 					activeSessionIds: pending.activeSessionIds,
 					closed: false,
+					timing,
 				};
 
 				this.removePendingLease(pending);
@@ -345,6 +414,7 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 				return lease;
 			})
 			.catch((error) => {
+				timing.errorAt = Date.now();
 				this.removePendingLease(pending);
 				for (const activeSessionId of pending.activeSessionIds) {
 					if (this.sessionPendingLeases.get(activeSessionId) === pending) {
@@ -412,7 +482,8 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 			: `${this.browserRunOptions.pool.maxBrowsers} browsers x unlimited sessions/browser`;
 	}
 
-	private async acquireBrowser(): Promise<BrowserRunAcquireResult> {
+	private async acquireBrowser(timing: BrowserRunLeaseTiming): Promise<BrowserRunAcquireResult> {
+		timing.acquireStartedAt = Date.now();
 		if (this.browserRunOptions.wsEndpoint) {
 			if (this.browserRunOptions.pool.maxBrowsers > 1) {
 				throw new Error(
@@ -422,53 +493,71 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 			}
 
 			this.throwIfClosing();
+			timing.cdpConnectStartedAt = Date.now();
+			const browser = await this.connectOverCdp(this.browserRunOptions.wsEndpoint);
+			timing.cdpConnectEndedAt = Date.now();
+			timing.acquireEndedAt = Date.now();
 			return {
-				browser: await this.connectOverCdp(this.browserRunOptions.wsEndpoint),
+				browser,
 				browserRunSessionId: '',
 			};
 		}
 
-		const session = await this.acquireBrowserRunSession();
-		return this.connectBrowserRunSession(session);
+		const session = await this.acquireBrowserRunSession(timing);
+		return this.connectBrowserRunSession(session, timing);
 	}
 
-	private async connectBrowserRunSession(session: BrowserRunSessionResponse): Promise<BrowserRunAcquireResult> {
+	private async connectBrowserRunSession(session: BrowserRunSessionResponse, timing: BrowserRunLeaseTiming): Promise<BrowserRunAcquireResult> {
 		const wsEndpoint = session.webSocketDebuggerUrl ?? getBrowserRunSessionWsEndpoint(this.browserRunOptions, session.sessionId!);
 		const browserRunSessionId = session.sessionId ?? '';
 		try {
 			this.throwIfClosing();
+			timing.cdpConnectStartedAt = Date.now();
+			const browser = await this.connectOverCdp(wsEndpoint);
+			timing.cdpConnectEndedAt = Date.now();
+			timing.acquireEndedAt = Date.now();
 			return {
-				browser: await this.connectOverCdp(wsEndpoint),
+				browser,
 				browserRunSessionId,
 			};
 		}
 		catch (error) {
+			timing.errorAt = Date.now();
 			await this.closeBrowserRunSession(browserRunSessionId).catch(() => {});
 			throw error;
 		}
 	}
 
-	private async acquireBrowserRunSession(): Promise<BrowserRunSessionResponse> {
+	private async acquireBrowserRunSession(timing: BrowserRunLeaseTiming): Promise<BrowserRunSessionResponse> {
 		const startedAt = Date.now();
 		let lastError: unknown;
 
 		while (Date.now() - startedAt <= this.browserRunOptions.pool.acquireTimeoutMs) {
+			const attempt: BrowserRunSessionAttemptTiming = { queueStartedAt: Date.now() };
+			(timing.sessionAttempts ??= []).push(attempt);
 			try {
 				return await this.enqueueBrowserRunSessionStart(async () => {
+					attempt.queueEnteredAt = Date.now();
 					this.throwIfClosing();
+					attempt.acquireSlotWaitStartedAt = Date.now();
 					await this.waitForAcquireSlot();
+					attempt.acquireSlotWaitEndedAt = Date.now();
 					this.throwIfClosing();
-					const session = await this.acquireBrowserRunSessionOnly();
+					const session = await this.acquireBrowserRunSessionOnly(attempt);
 					this.lastAcquireAt = Date.now();
+					timing.sessionCreatedAt = this.lastAcquireAt;
 					return session;
 				});
 			}
 			catch (error) {
 				if (!(error instanceof BrowserRunRateLimitError)) {
+					attempt.errorAt = Date.now();
 					throw error;
 				}
 
 				lastError = error;
+				attempt.rateLimitedAt = Date.now();
+				attempt.retryAfterMs = error.retryAfterMs ?? this.browserRunOptions.pool.acquireIntervalMs;
 				await delay(error.retryAfterMs ?? this.browserRunOptions.pool.acquireIntervalMs);
 				continue;
 			}
@@ -477,15 +566,17 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 		throw new Error(`Timed out acquiring a Browser Run session after ${this.browserRunOptions.pool.acquireTimeoutMs}ms.`, { cause: lastError });
 	}
 
-	private async acquireBrowserRunSessionOnly(): Promise<BrowserRunSessionResponse> {
+	private async acquireBrowserRunSessionOnly(timing: BrowserRunSessionAttemptTiming): Promise<BrowserRunSessionResponse> {
 		const accountId = getBrowserRunAccountId(this.browserRunOptions);
 		const apiToken = getBrowserRunApiToken(this.browserRunOptions);
+		timing.sessionPostStartedAt = Date.now();
 		const response = await fetch(getBrowserRunSessionApiUrl(accountId, this.browserRunOptions), {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${apiToken}`,
 			},
 		});
+		timing.sessionPostEndedAt = Date.now();
 
 		if (response.status === 429 && this.browserRunOptions.pool.retry429) {
 			await response.body?.cancel().catch(() => {});
@@ -493,6 +584,7 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 		}
 
 		if (!response.ok) {
+			timing.errorAt = Date.now();
 			const message = await response.text().catch(() => response.statusText);
 			throw new Error(`Browser Run session acquisition failed with HTTP ${response.status}: ${message}`);
 		}
@@ -583,19 +675,40 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 		this.sessionMetadata.delete(sessionId);
 	}
 
-	private createPoolMetadataScript(sessionId: string, lease: BrowserRunLease): string {
+	private createPoolMetadataScript(sessionId: string, lease: BrowserRunLease, timing: BrowserRunOpenPageTiming): string {
+		const metadata = this.setPoolMetadata(sessionId, lease, timing);
+		return createPoolMetadataAssignmentScript(metadata);
+	}
+
+	private async updatePoolMetadata(page: Page, sessionId: string, lease: BrowserRunLease, timing: BrowserRunOpenPageTiming): Promise<void> {
+		timing.metadataUpdatedAt = Date.now();
+		const metadata = this.setPoolMetadata(sessionId, lease, timing);
+		await page.addInitScript({ content: createPoolMetadataAssignmentScript(metadata) });
+		await page.evaluate(setBrowserRunPoolMetadata, metadata);
+
+		if (typeof page.frames === 'function') {
+			await Promise.all(page.frames().map(async (frame: { evaluate: (callback: typeof setBrowserRunPoolMetadata, value: Record<string, unknown>) => Promise<unknown> }) => {
+				await frame.evaluate(setBrowserRunPoolMetadata, metadata).catch(() => {});
+			}));
+		}
+	}
+
+	private setPoolMetadata(sessionId: string, lease: BrowserRunLease, timing: BrowserRunOpenPageTiming): Record<string, unknown> {
 		const sessionsPerBrowser = this.getSessionsPerBrowser();
 		const metadata = {
 			browserLeaseId: lease.id,
 			browserLeaseIndex: this.leases.indexOf(lease),
 			browserRunSessionId: lease.browserRunSessionId,
+			browserRunTimings: {
+				lease: { ...lease.timing },
+				openPage: { ...timing },
+			},
 			maxBrowsers: this.browserRunOptions.pool.maxBrowsers,
 			sessionId,
 			sessionsPerBrowser: Number.isFinite(sessionsPerBrowser) ? sessionsPerBrowser : null,
 		};
 		this.sessionMetadata.set(sessionId, metadata);
-
-		return `Object.defineProperty(globalThis, '__CLOUDFLARE_BROWSER_RUN_POOL__', { configurable: true, value: ${JSON.stringify(metadata)} });`;
+		return metadata;
 	}
 
 	private async closeLease(lease: BrowserRunLease): Promise<void> {
@@ -629,10 +742,26 @@ export class BrowserRunCdpProvider extends PlaywrightBrowserProvider {
 	}
 }
 
-async function waitForBrowserRunRunnerReady(url: string, options: BrowserRunCdpOptions): Promise<void> {
+function createPoolMetadataAssignmentScript(metadata: Record<string, unknown>): string {
+	return `Object.defineProperty(globalThis, '__CLOUDFLARE_BROWSER_RUN_POOL__', { configurable: true, value: ${JSON.stringify(metadata)} });`;
+}
+
+function setBrowserRunPoolMetadata(value: Record<string, unknown>): void {
+	Object.defineProperty(globalThis, '__CLOUDFLARE_BROWSER_RUN_POOL__', { configurable: true, value });
+}
+
+async function waitForBrowserRunRunnerReady(url: string, options: BrowserRunCdpOptions, timing: BrowserRunOpenPageTiming): Promise<void> {
+	timing.waitRunnerStartedAt = Date.now();
+	timing.waitLocalInitialStartedAt = Date.now();
 	await waitForLocalBrowserRunner(url);
+	timing.waitLocalInitialEndedAt = Date.now();
+	timing.waitPublicOriginStartedAt = Date.now();
 	await waitForBrowserRunPublicOrigin(options);
+	timing.waitPublicOriginEndedAt = Date.now();
+	timing.waitLocalFinalStartedAt = Date.now();
 	await waitForLocalBrowserRunner(url, { attempts: 120, intervalMs: 500 });
+	timing.waitLocalFinalEndedAt = Date.now();
+	timing.waitRunnerEndedAt = Date.now();
 }
 
 async function waitForBrowserRunPublicOrigin(options: BrowserRunCdpOptions): Promise<string> {

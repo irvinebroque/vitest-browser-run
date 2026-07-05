@@ -258,6 +258,18 @@ describe('Browser Run CDP connector', () => {
 			browserLeaseId: 1,
 			browserLeaseIndex: 0,
 			browserRunSessionId: 'browser-run-session-1',
+			browserRunTimings: {
+				lease: expect.objectContaining({
+					acquireStartedAt: expect.any(Number),
+					cdpConnectEndedAt: expect.any(Number),
+					leaseReadyAt: expect.any(Number),
+				}),
+				openPage: expect.objectContaining({
+					gotoEndedAt: expect.any(Number),
+					openPageEndedAt: expect.any(Number),
+					waitRunnerEndedAt: expect.any(Number),
+				}),
+			},
 			maxBrowsers: 2,
 			sessionsPerBrowser: 4,
 		});
@@ -508,6 +520,7 @@ interface MockPage {
 	addInitScript: ReturnType<typeof vi.fn>;
 	close: ReturnType<typeof vi.fn>;
 	context: ReturnType<typeof vi.fn>;
+	evaluate: ReturnType<typeof vi.fn>;
 	frame: ReturnType<typeof vi.fn>;
 	frameLocator: ReturnType<typeof vi.fn>;
 	goto: ReturnType<typeof vi.fn>;
@@ -644,6 +657,7 @@ function createMockContext() {
 		addInitScript: vi.fn(async () => {}),
 		close: vi.fn(async () => {}),
 		context: vi.fn(() => context),
+		evaluate: vi.fn(async () => {}),
 		frame: vi.fn(() => null),
 		frameLocator: vi.fn(() => ({ locator: vi.fn() })),
 		goto: vi.fn(async () => {}),
