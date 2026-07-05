@@ -7,7 +7,7 @@ export const browserApiHost = process.env.VITEST_BROWSER_API_HOST ?? '0.0.0.0';
 
 export const browserApiPort = Number(process.env.VITEST_BROWSER_API_PORT ?? '63315');
 
-export const appLatencyMs = process.env.BENCHMARK_APP_LATENCY_MS ?? '2200';
+export const appLatencyMs = process.env.BENCHMARK_APP_LATENCY_MS ?? '1000';
 
 export const benchmarkConcurrency = Number(process.env.BENCHMARK_CONCURRENCY ?? process.env.VITEST_MAX_WORKERS ?? '4');
 

@@ -176,7 +176,7 @@ CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="4"
 CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS="1000"
 BENCHMARK_PROFILE="large"
 BENCHMARK_SCENARIO_COUNT="384"
-BENCHMARK_APP_LATENCY_MS="2200"
+BENCHMARK_APP_LATENCY_MS="1000"
 ```
 
 `BENCHMARK_APP_LATENCY_MS` is the base app load budget. Individual scenarios scale it up or down to model realistic differences such as large audit-log tenants, enterprise plans, distant regions, and beta feature cohorts.

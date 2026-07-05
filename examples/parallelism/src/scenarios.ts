@@ -99,7 +99,7 @@ export function createScenarioBootstrap(id: string): ScenarioBootstrap {
 }
 
 export async function loadScenarioApp(bootstrap: ScenarioBootstrap, options: { baseLatencyMs?: number } = {}): Promise<ScenarioAppData> {
-	const latencyMs = scenarioAppLatencyMs(bootstrap.scenario, options.baseLatencyMs ?? 2200);
+	const latencyMs = scenarioAppLatencyMs(bootstrap.scenario, options.baseLatencyMs ?? 1000);
 	const phases = scenarioAppLoadPhases(bootstrap, latencyMs);
 
 	for (const phase of phases) {
@@ -115,7 +115,7 @@ export async function loadScenarioApp(bootstrap: ScenarioBootstrap, options: { b
 	};
 }
 
-export function scenarioAppLatencyMs(scenario: Scenario, baseLatencyMs = 2200): number {
+export function scenarioAppLatencyMs(scenario: Scenario, baseLatencyMs = 1000): number {
 	if (baseLatencyMs <= 0) {
 		return 0;
 	}

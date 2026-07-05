@@ -31,7 +31,7 @@ export async function runProductionScenario(id: string): Promise<void> {
 	const scenario = getScenario(id);
 	const bootstrap = createScenarioBootstrap(id);
 	const mode = readMetaEnv('VITEST_BENCHMARK_MODE', 'ad-hoc');
-	const appLatencyMs = readNumberMetaEnv('BENCHMARK_APP_LATENCY_MS', 2200);
+	const appLatencyMs = readNumberMetaEnv('BENCHMARK_APP_LATENCY_MS', 1000);
 	const startedAt = Date.now();
 	let appData: ScenarioAppData | undefined;
 	let status: ScenarioStatus = 'passed';
