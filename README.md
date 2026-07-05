@@ -130,6 +130,8 @@ This compares local Chrome with one browser and four workers, Browser Run with o
 
 Supported profiles are `default` (96 scenarios), `full` (192), `large` (384), `xlarge` (768), and `stress` (1536). `BENCHMARK_SCENARIO_COUNT=<n>` overrides the profile size.
 
+`BENCHMARK_APP_LATENCY_MS` controls the base app load budget for benchmark scenarios. The example app scales that latency per scenario using surface, plan, region, account size, and rollout state rather than sleeping inside the test.
+
 Compare fair parallel modes:
 
 ```sh

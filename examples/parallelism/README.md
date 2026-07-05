@@ -54,7 +54,7 @@ This shape is meant to mirror real production needs:
 - feature flag rollout checks
 - post-deploy smoke validation
 
-Each scenario holds its browser page open for a deterministic delay. Serial runs are intentionally slow; parallel runs should show visible overlap in the generated timeline report. Browser Run benchmark events also record the Browser Run lease/session assigned by the provider.
+Each scenario starts a production-style app load with deterministic latency based on the scenario shape: surface, role, plan, region, account size, and feature rollout state. Serial runs are intentionally slow; parallel runs should show visible overlap in the generated timeline report. Browser Run benchmark events also record the app latency and the Browser Run lease/session assigned by the provider.
 
 ## Test Shape
 
@@ -176,8 +176,10 @@ CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="4"
 CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS="1000"
 BENCHMARK_PROFILE="large"
 BENCHMARK_SCENARIO_COUNT="384"
-VITEST_SCENARIO_DELAY_MS="2200"
+BENCHMARK_APP_LATENCY_MS="2200"
 ```
+
+`BENCHMARK_APP_LATENCY_MS` is the base app load budget. Individual scenarios scale it up or down to model realistic differences such as large audit-log tenants, enterprise plans, distant regions, and beta feature cohorts.
 
 ## Launch Throttling
 

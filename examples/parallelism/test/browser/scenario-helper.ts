@@ -5,12 +5,14 @@ import {
 	createScenarioBootstrap,
 	formatScenarioCurrency,
 	getScenario,
+	loadScenarioApp,
 	scenarioDataSize,
 	scenarioFeatureState,
 	scenarioPlan,
 	scenarioRegion,
 	scenarioRevenue,
 	type Scenario,
+	type ScenarioAppData,
 	type ScenarioBootstrap,
 } from '../../src/scenarios';
 
@@ -29,17 +31,18 @@ export async function runProductionScenario(id: string): Promise<void> {
 	const scenario = getScenario(id);
 	const bootstrap = createScenarioBootstrap(id);
 	const mode = readMetaEnv('VITEST_BENCHMARK_MODE', 'ad-hoc');
-	const delayMs = readNumberMetaEnv('VITEST_SCENARIO_DELAY_MS', 2200);
+	const appLatencyMs = readNumberMetaEnv('BENCHMARK_APP_LATENCY_MS', 2200);
 	const startedAt = Date.now();
+	let appData: ScenarioAppData | undefined;
 	let status: ScenarioStatus = 'passed';
 	let errorMessage = '';
 
 	try {
 		renderLoadingShell(bootstrap);
-		await delay(delayMs / 2);
-		renderReadyShell(bootstrap);
-		await delay(delayMs / 2);
-		assertScenarioState(scenario, bootstrap);
+		appData = await loadScenarioApp(bootstrap, { baseLatencyMs: appLatencyMs });
+		renderReadyShell(bootstrap, appData);
+		await waitForScenarioReady(scenario.id);
+		assertScenarioState(scenario, bootstrap, appData);
 	}
 	catch (error) {
 		status = 'failed';
@@ -48,6 +51,7 @@ export async function runProductionScenario(id: string): Promise<void> {
 	}
 	finally {
 		await writeBenchmarkEvent({
+			appData,
 			browserRunPool: readBrowserRunPoolMetadata(),
 			durationMs: Date.now() - startedAt,
 			endTime: Date.now(),
@@ -66,12 +70,12 @@ function renderLoadingShell(bootstrap: ScenarioBootstrap): void {
 		<main data-testid="scenario-root" data-state="loading" data-scenario="${bootstrap.scenario.id}">
 			<p data-testid="scenario-worker">Vitest worker ${readMetaEnv('VITEST_WORKER_ID', 'unknown')}</p>
 			<h1>${bootstrap.title}</h1>
-			<p data-testid="scenario-status">Loading ${bootstrap.scenario.surface} for ${bootstrap.scenario.role}</p>
+			<p data-testid="scenario-status">Loading ${bootstrap.scenario.surface} data for ${bootstrap.scenario.role}</p>
 		</main>
 	`;
 }
 
-function renderReadyShell(bootstrap: ScenarioBootstrap): void {
+function renderReadyShell(bootstrap: ScenarioBootstrap, appData: ScenarioAppData): void {
 	const { scenario } = bootstrap;
 	document.body.dataset.viewport = scenario.viewport;
 	document.documentElement.lang = scenario.locale;
@@ -89,6 +93,12 @@ function renderReadyShell(bootstrap: ScenarioBootstrap): void {
 			<p data-testid="scenario-action">${bootstrap.primaryAction}</p>
 			<p data-testid="scenario-guardrail">${bootstrap.guardrail}</p>
 			<p data-testid="scenario-revenue">${bootstrap.formattedRevenue}</p>
+			<p data-testid="scenario-records">${appData.recordsLoaded}</p>
+			<p data-testid="scenario-app-latency">${appData.appLatencyMs}</p>
+			<p data-testid="scenario-summary">${appData.summary}</p>
+			<ol data-testid="scenario-load-phases">
+				${appData.phaseLabels.map((phase) => `<li>${phase}</li>`).join('')}
+			</ol>
 			<nav aria-label="Scenario navigation">
 				${bootstrap.navigation.map((item) => `<a href="#${item.toLowerCase().replaceAll(' ', '-')}">${item}</a>`).join('')}
 			</nav>
@@ -99,7 +109,21 @@ function renderReadyShell(bootstrap: ScenarioBootstrap): void {
 	`;
 }
 
-function assertScenarioState(scenario: Scenario, bootstrap: ScenarioBootstrap): void {
+async function waitForScenarioReady(id: string): Promise<void> {
+	const startedAt = performance.now();
+	while (performance.now() - startedAt < 1000) {
+		const root = document.querySelector<HTMLElement>('[data-testid="scenario-root"]');
+		if (root?.dataset.state === 'ready' && root.dataset.scenario === id) {
+			return;
+		}
+
+		await wait(25);
+	}
+
+	throw new Error(`Timed out waiting for scenario ${id} to become ready.`);
+}
+
+function assertScenarioState(scenario: Scenario, bootstrap: ScenarioBootstrap, appData: ScenarioAppData): void {
 	const root = getByTestId('scenario-root');
 	expect(root.dataset.state).toBe('ready');
 	expect(root.dataset.scenario).toBe(scenario.id);
@@ -118,12 +142,19 @@ function assertScenarioState(scenario: Scenario, bootstrap: ScenarioBootstrap): 
 	expect(getByTestId('scenario-action').textContent).toBe(bootstrap.primaryAction);
 	expect(getByTestId('scenario-guardrail').textContent).toBe(bootstrap.guardrail);
 	expect(getByTestId('scenario-revenue').textContent).toBe(formatScenarioCurrency(scenarioRevenue(scenario), scenario.locale));
+	expect(getByTestId('scenario-records').textContent).toBe(String(appData.recordsLoaded));
+	expect(getByTestId('scenario-app-latency').textContent).toBe(String(appData.appLatencyMs));
+	expect(getByTestId('scenario-summary').textContent).toBe(appData.summary);
+	for (const phase of appData.phaseLabels) {
+		expect(getByTestId('scenario-load-phases').textContent).toContain(phase);
+	}
 	for (const flag of scenario.flags) {
 		expect(getByTestId('scenario-flags').textContent).toContain(flag);
 	}
 }
 
 async function writeBenchmarkEvent(event: {
+	appData: ScenarioAppData | undefined;
 	browserRunPool: BrowserRunPoolMetadata;
 	durationMs: number;
 	endTime: number;
@@ -136,6 +167,7 @@ async function writeBenchmarkEvent(event: {
 }): Promise<void> {
 	const path = `artifacts/benchmark/${event.mode}/events/${event.scenario.id}.json`;
 	await server.commands.writeFile(path, `${JSON.stringify({
+		appLatencyMs: event.appData?.appLatencyMs ?? null,
 		benchmarkConcurrency: readNumberMetaEnv('BENCHMARK_CONCURRENCY', 0) || null,
 		browserLeaseId: event.browserRunPool.browserLeaseId ?? null,
 		browserLeaseIndex: event.browserRunPool.browserLeaseIndex ?? null,
