@@ -17,7 +17,7 @@ The provider supports a two-level parallelism model:
 - `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS` caps actual Browser Run browser sessions.
 - `CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER` caps pages/contexts per hosted browser.
 
-For example, `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=2`, `CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=4`, and `CLOUDFLARE_BROWSER_RUN_CONCURRENCY=8` runs up to eight browser test files at once across two Browser Run Chromium sessions.
+For example, `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=2` and `CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=4` gives the provider capacity for up to eight concurrent browser test files across two Browser Run Chromium sessions. Set Vitest `maxWorkers` to the same derived capacity when you want to fill the pool.
 
 If you omit the pool settings, the provider keeps the original efficient default: one Browser Run browser with as many Vitest pages/contexts as `maxWorkers` requires.
 
@@ -117,16 +117,18 @@ Run the same benchmark constrained to one hosted Browser Run browser:
 pnpm bench:browser-run:single
 ```
 
-Run a larger temporary comparison with the same per-browser concurrency in local and Browser Run modes:
+Run a larger temporary comparison with the same per-browser session cap in local and Browser Run modes:
 
 ```sh
 BENCHMARK_PROFILE=large \
-BENCHMARK_CONCURRENCY=4 \
+BENCHMARK_SESSIONS_PER_BROWSER=4 \
 CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=4 \
 pnpm bench:compare
 ```
 
 This compares local Chrome with one browser and four workers, Browser Run with one hosted browser and four pages/contexts, and Browser Run with four hosted browsers and four pages/contexts per browser.
+
+The benchmark does not expose a separate total-concurrency setting. Browser Run benchmark `maxWorkers` is derived from `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS * BENCHMARK_SESSIONS_PER_BROWSER`.
 
 Supported profiles are `default` (96 scenarios), `full` (192), `large` (384), `xlarge` (768), and `stress` (1536). `BENCHMARK_SCENARIO_COUNT=<n>` overrides the profile size.
 

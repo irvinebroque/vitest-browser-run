@@ -10,7 +10,7 @@ loadDotEnv();
 
 const browserApiHost = process.env.VITEST_BROWSER_API_HOST ?? '0.0.0.0';
 const browserApiPort = Number(process.env.VITEST_BROWSER_API_PORT ?? '63315');
-const browserRunConcurrency = Number(process.env.CLOUDFLARE_BROWSER_RUN_CONCURRENCY ?? process.env.VITEST_MAX_WORKERS ?? '8');
+const browserRunMaxWorkers = Number(process.env.VITEST_MAX_WORKERS ?? '8');
 
 function loadDotEnv(): void {
 	for (const envPath of ['.env', '../../.env']) {
@@ -36,7 +36,7 @@ export default defineConfig({
 	test: {
 		include: ['test/browser/*.browser.test.ts'],
 		fileParallelism: true,
-		maxWorkers: browserRunConcurrency,
+		maxWorkers: browserRunMaxWorkers,
 		browser: {
 			enabled: true,
 			connectTimeout: 180000,

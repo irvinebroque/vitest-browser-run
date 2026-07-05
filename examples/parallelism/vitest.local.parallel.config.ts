@@ -1,18 +1,18 @@
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
-import { benchmarkConcurrency, benchmarkInclude, appLatencyMs, localPlaywrightOptions } from './vitest.benchmark.shared';
+import { benchmarkInclude, benchmarkSessionsPerBrowser, appLatencyMs, localPlaywrightOptions } from './vitest.benchmark.shared';
 
-const localBrowserConcurrency = Number(process.env.BENCHMARK_CONCURRENCY ?? process.env.LOCAL_BROWSER_CONCURRENCY ?? String(benchmarkConcurrency));
+const localBrowserSessions = Number(process.env.BENCHMARK_SESSIONS_PER_BROWSER ?? String(benchmarkSessionsPerBrowser));
 
 export default defineConfig({
 	test: {
 		include: benchmarkInclude,
 		fileParallelism: true,
-		maxWorkers: localBrowserConcurrency,
+		maxWorkers: localBrowserSessions,
 		env: {
 			BENCHMARK_APP_LATENCY_MS: appLatencyMs,
-			BENCHMARK_CONCURRENCY: String(localBrowserConcurrency),
+			BENCHMARK_SESSIONS_PER_BROWSER: String(localBrowserSessions),
 			VITEST_BENCHMARK_MODE: process.env.VITEST_BENCHMARK_MODE ?? 'local-parallel',
 		},
 		browser: {

@@ -9,7 +9,7 @@ The important behavior is config-driven:
 ```ts
 test: {
 	fileParallelism: true,
-	maxWorkers: Number(process.env.CLOUDFLARE_BROWSER_RUN_CONCURRENCY ?? '8'),
+	maxWorkers: Number(process.env.VITEST_MAX_WORKERS ?? '8'),
 	browser: {
 		enabled: true,
 		headless: true,
@@ -25,7 +25,7 @@ test: {
 }
 ```
 
-With eight browser test files and `CLOUDFLARE_BROWSER_RUN_CONCURRENCY=8`, Vitest schedules eight files concurrently. By default, the provider connects to one Browser Run Chromium session and opens pages/contexts for those Vitest browser sessions.
+With eight browser test files and `VITEST_MAX_WORKERS=8`, Vitest schedules eight files concurrently. By default, the provider connects to one Browser Run Chromium session and opens pages/contexts for those Vitest browser sessions.
 
 Set `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=2` and `CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER=4` to distribute the same eight Vitest sessions across two hosted Chromium sessions. This lets the suite scale past one browser while still avoiding one browser launch per test file.
 
@@ -90,7 +90,7 @@ pnpm test:browser-run:parallel
 Lower the worker count without changing test code:
 
 ```sh
-CLOUDFLARE_BROWSER_RUN_CONCURRENCY=2 pnpm test:browser-run:parallel
+VITEST_MAX_WORKERS=2 pnpm test:browser-run:parallel
 ```
 
 Run the default 96-scenario multi-browser Browser Run benchmark:
@@ -105,13 +105,15 @@ Run the same Browser Run benchmark constrained to one hosted browser:
 pnpm bench:browser-run:single
 ```
 
-Benchmark comparison modes share `BENCHMARK_CONCURRENCY`, which defaults to `4` and means max sessions per browser. In `browser-run-single`, the runner sets one hosted browser with `BENCHMARK_CONCURRENCY` sessions. In `browser-run`, the runner sets `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS` hosted browsers with `BENCHMARK_CONCURRENCY` sessions per browser.
+Benchmark comparison modes share `BENCHMARK_SESSIONS_PER_BROWSER`, which defaults to `4`. In `browser-run-single`, the runner sets one hosted browser with `BENCHMARK_SESSIONS_PER_BROWSER` sessions. In `browser-run`, the runner sets `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS` hosted browsers with `BENCHMARK_SESSIONS_PER_BROWSER` sessions per browser.
+
+The benchmark does not expose a separate total-concurrency knob. Browser Run benchmark `maxWorkers` is derived from hosted browsers multiplied by sessions per browser.
 
 Run a larger app-shaped benchmark without committing the generated scenario files:
 
 ```sh
 BENCHMARK_PROFILE=large \
-BENCHMARK_CONCURRENCY=4 \
+BENCHMARK_SESSIONS_PER_BROWSER=4 \
 CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=4 \
 CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS=1000 \
 pnpm bench:compare
@@ -171,7 +173,7 @@ The token needs Browser Rendering - Edit permission.
 Optional benchmark controls:
 
 ```sh
-BENCHMARK_CONCURRENCY="4"
+BENCHMARK_SESSIONS_PER_BROWSER="4"
 CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS="4"
 CLOUDFLARE_BROWSER_RUN_ACQUIRE_INTERVAL_MS="1000"
 BENCHMARK_PROFILE="large"

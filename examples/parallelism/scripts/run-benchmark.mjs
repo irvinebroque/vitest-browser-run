@@ -8,7 +8,7 @@ import { writeBenchmarkReport } from './write-benchmark-report.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const artifactRoot = join(root, 'artifacts/benchmark');
-const benchmarkConcurrency = readBenchmarkConcurrency();
+const benchmarkSessionsPerBrowser = readBenchmarkSessionsPerBrowser();
 const browserRunBenchmarkBrowsers = readPositiveIntegerEnv('CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS', 4);
 
 const modeConfigs = {
@@ -26,7 +26,7 @@ const modeConfigs = {
 	},
 	'local-parallel': {
 		config: 'vitest.local.parallel.config.ts',
-		env: () => ({ BENCHMARK_CONCURRENCY: String(benchmarkConcurrency) }),
+		env: () => ({ BENCHMARK_SESSIONS_PER_BROWSER: String(benchmarkSessionsPerBrowser) }),
 		mode: 'local-parallel',
 		prepare: false,
 	},
@@ -92,7 +92,7 @@ try {
 
 		await mkdir(join(artifactRoot, mode), { recursive: true });
 		await writeFile(join(artifactRoot, mode, 'metadata.json'), `${JSON.stringify({
-			benchmarkConcurrency: childEnv.BENCHMARK_CONCURRENCY ?? '',
+			benchmarkSessionsPerBrowser: childEnv.BENCHMARK_SESSIONS_PER_BROWSER ?? '',
 			browserRunMaxBrowsers: childEnv.CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS ?? '',
 			browserRunSessionsPerBrowser: childEnv.CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER ?? '',
 			endedAt: Date.now(),
@@ -164,19 +164,18 @@ function formatCount(value) {
 
 function browserRunModeEnv(maxBrowsers) {
 	return {
-		BENCHMARK_CONCURRENCY: String(benchmarkConcurrency),
-		CLOUDFLARE_BROWSER_RUN_CONCURRENCY: String(maxBrowsers * benchmarkConcurrency),
+		BENCHMARK_SESSIONS_PER_BROWSER: String(benchmarkSessionsPerBrowser),
 		CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS: String(maxBrowsers),
-		CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER: String(benchmarkConcurrency),
+		CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER: String(benchmarkSessionsPerBrowser),
 	};
 }
 
-function readBenchmarkConcurrency() {
-	if (process.env.BENCHMARK_CONCURRENCY) {
-		return readPositiveIntegerEnv('BENCHMARK_CONCURRENCY', 4);
+function readBenchmarkSessionsPerBrowser() {
+	if (process.env.BENCHMARK_SESSIONS_PER_BROWSER) {
+		return readPositiveIntegerEnv('BENCHMARK_SESSIONS_PER_BROWSER', 4);
 	}
 
-	return readPositiveIntegerEnv('VITEST_MAX_WORKERS', 4);
+	return readPositiveIntegerEnv('CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER', 4);
 }
 
 function readPositiveIntegerEnv(name, fallback) {
