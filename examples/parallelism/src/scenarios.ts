@@ -117,7 +117,9 @@ export function scenarioAppLoadPhases(bootstrap: ScenarioBootstrap): string[] {
 export function scenarioAppHtml(id: string): string {
 	const bootstrap = createScenarioBootstrap(id);
 	const { scenario } = bootstrap;
+	const appData = loadScenarioApp(bootstrap);
 	const flags = scenario.flags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join('');
+	const loadPhases = appData.phaseLabels.map((phase) => `<li>${escapeHtml(phase)}</li>`).join('');
 	const navigation = bootstrap.navigation.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
 
 	return `<!doctype html>
@@ -136,22 +138,28 @@ export function scenarioAppHtml(id: string): string {
     strong { color: #93c5fd; }
   </style>
 </head>
-<body data-viewport="${scenario.viewport}">
-  <main data-testid="scenario-root">
+<body data-viewport="${escapeHtml(scenario.viewport)}">
+  <main data-testid="scenario-root" data-state="ready" data-scenario="${escapeHtml(scenario.id)}" data-surface="${escapeHtml(scenario.surface)}" data-role="${escapeHtml(scenario.role)}" data-plan="${escapeHtml(scenarioPlan(scenario))}" data-region="${escapeHtml(scenarioRegion(scenario))}" data-size="${escapeHtml(scenarioDataSize(scenario))}" data-feature-state="${escapeHtml(scenarioFeatureState(scenario))}">
     <p><strong>${escapeHtml(scenario.id)}</strong></p>
     <h1>${escapeHtml(bootstrap.title)}</h1>
+    <p data-testid="scenario-status">Ready</p>
+    <p data-testid="scenario-locale">${escapeHtml(scenario.locale)}</p>
+    <p data-testid="scenario-viewport">${escapeHtml(scenario.viewport)}</p>
     <p data-testid="scenario-guardrail">${escapeHtml(bootstrap.guardrail)}</p>
      <section class="grid">
        <article class="card"><h2>Primary action</h2><p data-testid="scenario-action">${escapeHtml(bootstrap.primaryAction)}</p></article>
        <article class="card"><h2>Revenue</h2><p data-testid="scenario-revenue">${escapeHtml(bootstrap.formattedRevenue)}</p></article>
        <article class="card"><h2>Flags</h2><ul data-testid="scenario-flags">${flags}</ul></article>
-       <article class="card"><h2>Plan</h2><p>${escapeHtml(bootstrap.planLabel)}</p></article>
-       <article class="card"><h2>Region</h2><p>${escapeHtml(bootstrap.regionLabel)}</p></article>
-       <article class="card"><h2>Scale</h2><p>${escapeHtml(bootstrap.scaleLabel)}</p></article>
-     </section>
-     <p>${escapeHtml(bootstrap.stateLabel)}</p>
-     <nav aria-label="Scenario navigation"><ul>${navigation}</ul></nav>
-   </main>
+       <article class="card"><h2>Plan</h2><p data-testid="scenario-plan">${escapeHtml(bootstrap.planLabel)}</p></article>
+       <article class="card"><h2>Region</h2><p data-testid="scenario-region">${escapeHtml(bootstrap.regionLabel)}</p></article>
+       <article class="card"><h2>Scale</h2><p data-testid="scenario-scale">${escapeHtml(bootstrap.scaleLabel)}</p></article>
+      </section>
+      <p data-testid="scenario-feature-state">${escapeHtml(bootstrap.stateLabel)}</p>
+      <p data-testid="scenario-records">${appData.recordsLoaded}</p>
+      <p data-testid="scenario-summary">${escapeHtml(appData.summary)}</p>
+      <ol data-testid="scenario-load-phases">${loadPhases}</ol>
+      <nav aria-label="Scenario navigation"><ul>${navigation}</ul></nav>
+    </main>
 </body>
 </html>`;
 }

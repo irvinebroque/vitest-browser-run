@@ -1,3 +1,4 @@
+import { cloudflare } from '@cloudflare/vite-plugin';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
@@ -6,6 +7,7 @@ import { benchmarkInclude, benchmarkSessionsPerBrowser, localPlaywrightOptions }
 const localBrowserSessions = Number(process.env.BENCHMARK_SESSIONS_PER_BROWSER ?? String(benchmarkSessionsPerBrowser));
 
 export default defineConfig({
+	plugins: [cloudflare()],
 	test: {
 		include: benchmarkInclude,
 		fileParallelism: true,

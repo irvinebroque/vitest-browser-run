@@ -1,9 +1,11 @@
+import { cloudflare } from '@cloudflare/vite-plugin';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
 import { benchmarkInclude, localPlaywrightOptions } from './vitest.benchmark.shared';
 
 export default defineConfig({
+	plugins: [cloudflare()],
 	test: {
 		include: benchmarkInclude,
 		fileParallelism: false,

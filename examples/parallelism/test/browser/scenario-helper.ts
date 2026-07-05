@@ -10,6 +10,7 @@ import {
 	scenarioFeatureState,
 	scenarioPlan,
 	scenarioRegion,
+	scenarioRoute,
 	scenarioRevenue,
 	type Scenario,
 	type ScenarioAppData,
@@ -32,16 +33,15 @@ export async function runProductionScenario(id: string): Promise<void> {
 	const bootstrap = createScenarioBootstrap(id);
 	const mode = readMetaEnv('VITEST_BENCHMARK_MODE', 'ad-hoc');
 	const startedAt = Date.now();
+	const expectedAppData = loadScenarioApp(bootstrap);
 	let appData: ScenarioAppData | undefined;
 	let status: ScenarioStatus = 'passed';
 	let errorMessage = '';
 
 	try {
-		renderLoadingShell(bootstrap);
-		appData = loadScenarioApp(bootstrap);
-		renderReadyShell(bootstrap, appData);
-		await waitForScenarioReady(scenario.id);
-		assertScenarioState(scenario, bootstrap, appData);
+		const appDocument = await navigateToScenarioApp(scenarioRoute(id), scenario.id);
+		appData = expectedAppData;
+		assertScenarioState(appDocument, scenario, bootstrap, appData);
 	}
 	catch (error) {
 		status = 'failed';
@@ -64,53 +64,42 @@ export async function runProductionScenario(id: string): Promise<void> {
 	}
 }
 
-function renderLoadingShell(bootstrap: ScenarioBootstrap): void {
-	document.body.innerHTML = `
-		<main data-testid="scenario-root" data-state="loading" data-scenario="${bootstrap.scenario.id}">
-			<p data-testid="scenario-worker">Vitest worker ${readMetaEnv('VITEST_WORKER_ID', 'unknown')}</p>
-			<h1>${bootstrap.title}</h1>
-			<p data-testid="scenario-status">Loading ${bootstrap.scenario.surface} data for ${bootstrap.scenario.role}</p>
-		</main>
-	`;
+async function navigateToScenarioApp(route: string, id: string): Promise<Document> {
+	const iframe = document.createElement('iframe');
+	iframe.dataset.testid = 'scenario-app-frame';
+	iframe.style.border = '0';
+	iframe.style.height = '800px';
+	iframe.style.width = '1280px';
+
+	const loaded = new Promise<void>((resolve, reject) => {
+		const timeout = setTimeout(() => reject(new Error(`Timed out loading scenario route ${route}.`)), 5000);
+		iframe.addEventListener('load', () => {
+			clearTimeout(timeout);
+			resolve();
+		}, { once: true });
+		iframe.addEventListener('error', () => {
+			clearTimeout(timeout);
+			reject(new Error(`Failed to load scenario route ${route}.`));
+		}, { once: true });
+	});
+
+	iframe.src = route;
+	document.body.replaceChildren(iframe);
+	await loaded;
+
+	const appDocument = iframe.contentDocument;
+	if (!appDocument) {
+		throw new Error(`Unable to read scenario route ${route}.`);
+	}
+
+	await waitForScenarioReady(appDocument, id);
+	return appDocument;
 }
 
-function renderReadyShell(bootstrap: ScenarioBootstrap, appData: ScenarioAppData): void {
-	const { scenario } = bootstrap;
-	document.body.dataset.viewport = scenario.viewport;
-	document.documentElement.lang = scenario.locale;
-	document.body.innerHTML = `
-		<main data-testid="scenario-root" data-state="ready" data-scenario="${scenario.id}" data-surface="${scenario.surface}" data-role="${scenario.role}" data-plan="${scenarioPlan(scenario)}" data-region="${scenarioRegion(scenario)}" data-size="${scenarioDataSize(scenario)}" data-feature-state="${scenarioFeatureState(scenario)}">
-			<p data-testid="scenario-worker">Vitest worker ${readMetaEnv('VITEST_WORKER_ID', 'unknown')}</p>
-			<h1>${bootstrap.title}</h1>
-			<p data-testid="scenario-status">Ready</p>
-			<p data-testid="scenario-locale">${scenario.locale}</p>
-			<p data-testid="scenario-viewport">${scenario.viewport}</p>
-			<p data-testid="scenario-plan">${bootstrap.planLabel}</p>
-			<p data-testid="scenario-region">${bootstrap.regionLabel}</p>
-			<p data-testid="scenario-scale">${bootstrap.scaleLabel}</p>
-			<p data-testid="scenario-feature-state">${bootstrap.stateLabel}</p>
-			<p data-testid="scenario-action">${bootstrap.primaryAction}</p>
-			<p data-testid="scenario-guardrail">${bootstrap.guardrail}</p>
-			<p data-testid="scenario-revenue">${bootstrap.formattedRevenue}</p>
-			<p data-testid="scenario-records">${appData.recordsLoaded}</p>
-			<p data-testid="scenario-summary">${appData.summary}</p>
-			<ol data-testid="scenario-load-phases">
-				${appData.phaseLabels.map((phase) => `<li>${phase}</li>`).join('')}
-			</ol>
-			<nav aria-label="Scenario navigation">
-				${bootstrap.navigation.map((item) => `<a href="#${item.toLowerCase().replaceAll(' ', '-')}">${item}</a>`).join('')}
-			</nav>
-			<ul data-testid="scenario-flags">
-				${scenario.flags.map((flag) => `<li>${flag}</li>`).join('')}
-			</ul>
-		</main>
-	`;
-}
-
-async function waitForScenarioReady(id: string): Promise<void> {
+async function waitForScenarioReady(appDocument: Document, id: string): Promise<void> {
 	const startedAt = performance.now();
 	while (performance.now() - startedAt < 1000) {
-		const root = document.querySelector<HTMLElement>('[data-testid="scenario-root"]');
+		const root = appDocument.querySelector<HTMLElement>('[data-testid="scenario-root"]');
 		if (root?.dataset.state === 'ready' && root.dataset.scenario === id) {
 			return;
 		}
@@ -121,8 +110,8 @@ async function waitForScenarioReady(id: string): Promise<void> {
 	throw new Error(`Timed out waiting for scenario ${id} to become ready.`);
 }
 
-function assertScenarioState(scenario: Scenario, bootstrap: ScenarioBootstrap, appData: ScenarioAppData): void {
-	const root = getByTestId('scenario-root');
+function assertScenarioState(appDocument: Document, scenario: Scenario, bootstrap: ScenarioBootstrap, appData: ScenarioAppData): void {
+	const root = getByTestId(appDocument, 'scenario-root');
 	expect(root.dataset.state).toBe('ready');
 	expect(root.dataset.scenario).toBe(scenario.id);
 	expect(root.dataset.surface).toBe(scenario.surface);
@@ -131,22 +120,24 @@ function assertScenarioState(scenario: Scenario, bootstrap: ScenarioBootstrap, a
 	expect(root.dataset.region).toBe(scenarioRegion(scenario));
 	expect(root.dataset.size).toBe(scenarioDataSize(scenario));
 	expect(root.dataset.featureState).toBe(scenarioFeatureState(scenario));
-	expect(getByTestId('scenario-locale').textContent).toBe(scenario.locale);
-	expect(getByTestId('scenario-viewport').textContent).toBe(scenario.viewport);
-	expect(getByTestId('scenario-plan').textContent).toBe(bootstrap.planLabel);
-	expect(getByTestId('scenario-region').textContent).toBe(bootstrap.regionLabel);
-	expect(getByTestId('scenario-scale').textContent).toBe(bootstrap.scaleLabel);
-	expect(getByTestId('scenario-feature-state').textContent).toBe(bootstrap.stateLabel);
-	expect(getByTestId('scenario-action').textContent).toBe(bootstrap.primaryAction);
-	expect(getByTestId('scenario-guardrail').textContent).toBe(bootstrap.guardrail);
-	expect(getByTestId('scenario-revenue').textContent).toBe(formatScenarioCurrency(scenarioRevenue(scenario), scenario.locale));
-	expect(getByTestId('scenario-records').textContent).toBe(String(appData.recordsLoaded));
-	expect(getByTestId('scenario-summary').textContent).toBe(appData.summary);
+	expect(appDocument.documentElement.lang).toBe(scenario.locale);
+	expect(appDocument.body.dataset.viewport).toBe(scenario.viewport);
+	expect(getByTestId(appDocument, 'scenario-locale').textContent).toBe(scenario.locale);
+	expect(getByTestId(appDocument, 'scenario-viewport').textContent).toBe(scenario.viewport);
+	expect(getByTestId(appDocument, 'scenario-plan').textContent).toBe(bootstrap.planLabel);
+	expect(getByTestId(appDocument, 'scenario-region').textContent).toBe(bootstrap.regionLabel);
+	expect(getByTestId(appDocument, 'scenario-scale').textContent).toBe(bootstrap.scaleLabel);
+	expect(getByTestId(appDocument, 'scenario-feature-state').textContent).toBe(bootstrap.stateLabel);
+	expect(getByTestId(appDocument, 'scenario-action').textContent).toBe(bootstrap.primaryAction);
+	expect(getByTestId(appDocument, 'scenario-guardrail').textContent).toBe(bootstrap.guardrail);
+	expect(getByTestId(appDocument, 'scenario-revenue').textContent).toBe(formatScenarioCurrency(scenarioRevenue(scenario), scenario.locale));
+	expect(getByTestId(appDocument, 'scenario-records').textContent).toBe(String(appData.recordsLoaded));
+	expect(getByTestId(appDocument, 'scenario-summary').textContent).toBe(appData.summary);
 	for (const phase of appData.phaseLabels) {
-		expect(getByTestId('scenario-load-phases').textContent).toContain(phase);
+		expect(getByTestId(appDocument, 'scenario-load-phases').textContent).toContain(phase);
 	}
 	for (const flag of scenario.flags) {
-		expect(getByTestId('scenario-flags').textContent).toContain(flag);
+		expect(getByTestId(appDocument, 'scenario-flags').textContent).toContain(flag);
 	}
 }
 
@@ -214,8 +205,8 @@ function readBrowserRunPoolMetadataFrom(scope: Window | typeof globalThis): Brow
 	return (scope as typeof globalThis & { __CLOUDFLARE_BROWSER_RUN_POOL__?: BrowserRunPoolMetadata }).__CLOUDFLARE_BROWSER_RUN_POOL__;
 }
 
-function getByTestId(testId: string): HTMLElement {
-	const element = document.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+function getByTestId(appDocument: Document, testId: string): HTMLElement {
+	const element = appDocument.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
 	expect(element).not.toBeNull();
 	return element!;
 }
