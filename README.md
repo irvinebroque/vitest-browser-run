@@ -126,13 +126,23 @@ CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS=4 \
 pnpm bench:compare
 ```
 
-This runs local Chrome with one browser and four workers, Browser Run with one hosted browser and four pages/contexts, and Browser Run with four hosted browsers and four pages/contexts per browser. Local Chrome is reported as context only; Browser Run speedup compares pooled Browser Run against `browser-run-single`.
+This runs one benchmark contract across three modes:
+
+- same generated `test/browser/scenarios/**/*.browser.test.ts` files
+- same Vitest Browser Mode runner
+- same real Chromium browser type
+- same `/app/scenario/:id` Worker route and assertions
+- same Cloudflare Vite plugin local `workerd` app runtime
+
+The only differences are provider and topology: local Playwright with default local parallelism, Browser Run with one hosted browser, and Browser Run with multiple hosted browsers. Local Chrome is reported as context only; Browser Run speedup compares pooled Browser Run against `browser-run-single`.
 
 The benchmark does not expose a separate total-concurrency setting. Browser Run benchmark `maxWorkers` is derived from `CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS * BENCHMARK_SESSIONS_PER_BROWSER`.
 
 Supported profiles are `default` (96 scenarios), `full` (192), `large` (384), `xlarge` (768), and `stress` (1536). `BENCHMARK_SCENARIO_COUNT=<n>` overrides the profile size.
 
-Benchmark scenarios do not add synthetic app latency. They measure the actual scenario route load, render, data shaping, assertions, provider, and Vitest Browser Mode overhead. Reported overlap is observed from scenario event windows; it is not the configured worker cap.
+Benchmark scenarios do not add synthetic app latency. They measure the actual scenario route load, render, data shaping, assertions, provider, and Vitest Browser Mode overhead. Local mode can be much faster because the browser, Vite server, Worker runtime, and CDP control path are all local; Browser Run includes hosted browser acquisition, Cloudflare Tunnel routing, and remote CDP round trips. Reported overlap is observed from scenario event windows; it is not the configured worker cap.
+
+The benchmark runner fails if comparable modes do not emit the same execution contract metadata or the exact same scenario IDs.
 
 Compare fair parallel modes:
 

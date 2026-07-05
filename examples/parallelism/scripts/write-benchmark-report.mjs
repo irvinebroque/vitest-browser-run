@@ -77,6 +77,7 @@ function summarizeMode(mode, events, metadata) {
 		mode,
 		passed,
 		scenarioCount: events.length,
+		topology: metadata.benchmarkProviderTopology || 'unknown',
 		wallTimeMs,
 	};
 }
@@ -159,15 +160,15 @@ function maxConcurrency(events) {
 function renderMarkdown(summaries) {
 	const browserRunBaseline = summaries.find((summary) => summary.mode === 'browser-run-single');
 	const rows = summaries.map((summary) => {
-		return `| ${summary.mode} | ${summary.scenarioCount} | ${formatCount(summary.browserSessionCount)} | ${formatCount(summary.configuredCapacity)} | ${summary.maxConcurrency} | ${formatCount(summary.maxPerBrowserConcurrency)} | ${formatDuration(summary.wallTimeMs)} | ${browserRunSpeedup(summary, browserRunBaseline)} | ${summary.passed}/${summary.failed} |`;
+		return `| ${summary.mode} | ${summary.topology} | ${summary.scenarioCount} | ${formatCount(summary.browserSessionCount)} | ${formatCount(summary.configuredCapacity)} | ${summary.maxConcurrency} | ${formatCount(summary.maxPerBrowserConcurrency)} | ${formatDuration(summary.wallTimeMs)} | ${browserRunSpeedup(summary, browserRunBaseline)} | ${summary.passed}/${summary.failed} |`;
 	});
 
 	return `# Browser Benchmark Summary
 
 Local mode is a context row. Browser Run speedup is measured against \`browser-run-single\`, not local Chrome.
 
-| Mode | Scenarios | Browser sessions | Configured capacity | Observed overlap | Max/browser | Wall time | Browser Run speedup | Passed/failed |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Mode | Provider/topology | Scenarios | Browser sessions | Configured capacity | Observed overlap | Max/browser | Wall time | Browser Run speedup | Passed/failed |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 ${rows.join('\n')}
 `;
 }
@@ -198,9 +199,9 @@ function renderHtml(summaries) {
 <body>
 	<main>
 	    <h1>Browser benchmark report</h1>
-	    <p>This report shows the same scenario matrix across benchmark modes. Local mode is a context row; Browser Run speedup compares hosted browser pooling against <code>browser-run-single</code>. Timelines show observed file-level overlap, not the configured worker cap.</p>
+	    <p>This report shows the same scenario matrix across benchmark modes under contract <code>${escapeHtml(summaries[0]?.metadata.benchmarkContractId ?? 'unknown')}</code>. Local mode is a context row; Browser Run speedup compares hosted browser pooling against <code>browser-run-single</code>. Timelines show observed file-level overlap, not the configured worker cap.</p>
 	    <table>
-	      <thead><tr><th>Mode</th><th>Scenarios</th><th>Browser sessions</th><th>Configured capacity</th><th>Observed overlap</th><th>Max/browser</th><th>Wall time</th><th>Browser Run speedup</th><th>Passed/failed</th></tr></thead>
+	      <thead><tr><th>Mode</th><th>Provider/topology</th><th>Scenarios</th><th>Browser sessions</th><th>Configured capacity</th><th>Observed overlap</th><th>Max/browser</th><th>Wall time</th><th>Browser Run speedup</th><th>Passed/failed</th></tr></thead>
 	      <tbody>
 	        ${summaries.map((summary) => renderSummaryRow(summary, browserRunBaseline)).join('\n')}
 	      </tbody>
@@ -212,7 +213,7 @@ function renderHtml(summaries) {
 }
 
 function renderSummaryRow(summary, browserRunBaseline) {
-	return `<tr><td><code>${escapeHtml(summary.mode)}</code></td><td>${summary.scenarioCount}</td><td>${formatCount(summary.browserSessionCount)}</td><td>${formatCount(summary.configuredCapacity)}</td><td>${summary.maxConcurrency}</td><td>${formatCount(summary.maxPerBrowserConcurrency)}</td><td>${formatDuration(summary.wallTimeMs)}</td><td>${browserRunSpeedup(summary, browserRunBaseline)}</td><td>${summary.passed}/${summary.failed}</td></tr>`;
+	return `<tr><td><code>${escapeHtml(summary.mode)}</code></td><td><code>${escapeHtml(summary.topology)}</code></td><td>${summary.scenarioCount}</td><td>${formatCount(summary.browserSessionCount)}</td><td>${formatCount(summary.configuredCapacity)}</td><td>${summary.maxConcurrency}</td><td>${formatCount(summary.maxPerBrowserConcurrency)}</td><td>${formatDuration(summary.wallTimeMs)}</td><td>${browserRunSpeedup(summary, browserRunBaseline)}</td><td>${summary.passed}/${summary.failed}</td></tr>`;
 }
 
 function renderModeCard(summary) {
@@ -232,7 +233,7 @@ function renderModeCard(summary) {
 
 	return `<section class="mode">
   <h2>${escapeHtml(summary.mode)}</h2>
-  <p>${summary.scenarioCount} scenarios, ${formatCount(summary.browserSessionCount)} browser sessions, configured capacity ${formatCount(summary.configuredCapacity)}, observed overlap ${summary.maxConcurrency}, max/browser ${formatCount(summary.maxPerBrowserConcurrency)}, wall time ${formatDuration(summary.wallTimeMs)}.</p>
+  <p>Topology <code>${escapeHtml(summary.topology)}</code>. ${summary.scenarioCount} scenarios, ${formatCount(summary.browserSessionCount)} browser sessions, configured capacity ${formatCount(summary.configuredCapacity)}, observed overlap ${summary.maxConcurrency}, max/browser ${formatCount(summary.maxPerBrowserConcurrency)}, wall time ${formatDuration(summary.wallTimeMs)}.</p>
   ${browserBreakdown}
   <div class="timeline" style="height: ${Math.max(96, 24 + Math.min(summary.events.length, 12) * 12)}px">${bars}</div>
 </section>`;
@@ -291,7 +292,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 	const summaries = await writeBenchmarkReport(cliModes());
 	const browserRunBaseline = summaries.find((summary) => summary.mode === 'browser-run-single');
 	for (const summary of summaries) {
-		console.log(`${summary.mode}: ${summary.scenarioCount} scenarios, ${formatCount(summary.browserSessionCount)} browser sessions, configured capacity ${formatCount(summary.configuredCapacity)}, observed overlap ${summary.maxConcurrency}, max/browser ${formatCount(summary.maxPerBrowserConcurrency)}, wall time ${formatDuration(summary.wallTimeMs)}, Browser Run speedup ${browserRunSpeedup(summary, browserRunBaseline)}`);
+		console.log(`${summary.mode}: topology ${summary.topology}, ${summary.scenarioCount} scenarios, ${formatCount(summary.browserSessionCount)} browser sessions, configured capacity ${formatCount(summary.configuredCapacity)}, observed overlap ${summary.maxConcurrency}, max/browser ${formatCount(summary.maxPerBrowserConcurrency)}, wall time ${formatDuration(summary.wallTimeMs)}, Browser Run speedup ${browserRunSpeedup(summary, browserRunBaseline)}`);
 	}
 }
 

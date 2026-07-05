@@ -1,27 +1,15 @@
 import { cloudflare } from '@cloudflare/vite-plugin';
 import { playwright } from '@vitest/browser-playwright';
-import { defineConfig } from 'vitest/config';
 
-import { benchmarkInclude, localPlaywrightOptions } from './vitest.benchmark.shared';
+import { benchmarkTestConfig, localPlaywrightOptions } from './vitest.benchmark.shared';
 
-export default defineConfig({
+export default {
 	plugins: [cloudflare()],
-	test: {
-		include: benchmarkInclude,
+	test: benchmarkTestConfig({
 		fileParallelism: false,
 		maxWorkers: 1,
-		env: {
-			VITEST_BENCHMARK_MODE: process.env.VITEST_BENCHMARK_MODE ?? 'local-serial',
-		},
-		browser: {
-			enabled: true,
-			headless: true,
-			fileParallelism: false,
-			provider: playwright(localPlaywrightOptions()),
-			api: {
-				allowWrite: true,
-			},
-			instances: [{ browser: 'chromium', viewport: { width: 1280, height: 800 } }],
-		},
-	},
-});
+		mode: 'local-serial',
+		provider: playwright(localPlaywrightOptions()),
+		topology: 'local-playwright-serial-debug',
+	}),
+};

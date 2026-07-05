@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 
+import { benchmarkContractEnv } from './benchmark-contract.mjs';
 import { writeBenchmarkReport } from './write-benchmark-report.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -13,25 +14,39 @@ const browserRunBenchmarkBrowsers = readPositiveIntegerEnv('CLOUDFLARE_BROWSER_R
 
 const modeConfigs = {
 	'browser-run': {
+		comparable: true,
 		config: 'vitest.browser-run.benchmark.config.ts',
-		env: () => browserRunModeEnv(browserRunBenchmarkBrowsers),
+		env: () => ({
+			...benchmarkContractEnv(browserRunTopology(browserRunBenchmarkBrowsers)),
+			...browserRunModeEnv(browserRunBenchmarkBrowsers),
+		}),
 		mode: 'browser-run',
 		prepare: true,
 	},
 	'browser-run-single': {
+		comparable: true,
 		config: 'vitest.browser-run.benchmark.config.ts',
-		env: () => browserRunModeEnv(1),
+		env: () => ({
+			...benchmarkContractEnv(browserRunTopology(1)),
+			...browserRunModeEnv(1),
+		}),
 		mode: 'browser-run-single',
 		prepare: true,
 	},
 	'local-parallel': {
+		comparable: true,
 		config: 'vitest.local.parallel.config.ts',
-		env: () => ({ BENCHMARK_SESSIONS_PER_BROWSER: String(benchmarkSessionsPerBrowser) }),
+		env: () => ({
+			...benchmarkContractEnv('local-playwright-default-parallel'),
+			BENCHMARK_SESSIONS_PER_BROWSER: String(benchmarkSessionsPerBrowser),
+		}),
 		mode: 'local-parallel',
 		prepare: false,
 	},
 	'local-serial': {
+		comparable: false,
 		config: 'vitest.local.serial.config.ts',
+		env: () => benchmarkContractEnv('local-playwright-serial-debug'),
 		mode: 'local-serial',
 		prepare: false,
 	},
@@ -93,7 +108,15 @@ try {
 
 		await mkdir(join(artifactRoot, mode), { recursive: true });
 		await writeFile(join(artifactRoot, mode, 'metadata.json'), `${JSON.stringify({
+			benchmarkAppRoutePattern: childEnv.BENCHMARK_APP_ROUTE_PATTERN ?? '',
+			benchmarkAppRuntime: childEnv.BENCHMARK_APP_RUNTIME ?? '',
+			benchmarkBrowserMode: childEnv.BENCHMARK_BROWSER_MODE ?? '',
+			benchmarkBrowserName: childEnv.BENCHMARK_BROWSER_NAME ?? '',
+			benchmarkContractId: childEnv.BENCHMARK_CONTRACT_ID ?? '',
+			benchmarkProviderTopology: childEnv.BENCHMARK_PROVIDER_TOPOLOGY ?? '',
 			benchmarkSessionsPerBrowser: childEnv.BENCHMARK_SESSIONS_PER_BROWSER ?? '',
+			benchmarkTestCorpus: childEnv.BENCHMARK_TEST_CORPUS ?? '',
+			benchmarkViewport: childEnv.BENCHMARK_VIEWPORT ?? '',
 			browserRunMaxBrowsers: childEnv.CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS ?? '',
 			browserRunSessionsPerBrowser: childEnv.CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER ?? '',
 			endedAt: Date.now(),
@@ -109,11 +132,12 @@ try {
 
 	const summaries = await writeBenchmarkReport(modes);
 	const browserRunBaseline = summaries.find((summary) => summary.mode === 'browser-run-single');
+	assertBenchmarkContract(summaries);
 
 	console.log('\nBenchmark summary');
-	console.log('Mode                  Scenarios  Browsers  Capacity  Observed overlap  Max/browser  Wall time  Browser Run speedup');
+	console.log('Mode                  Provider/topology                         Scenarios  Browsers  Capacity  Observed overlap  Max/browser  Wall time  Browser Run speedup');
 	for (const summary of summaries) {
-		console.log(`${summary.mode.padEnd(22)}${String(summary.scenarioCount).padStart(9)}${formatCount(summary.browserSessionCount).padStart(10)}${formatCount(summary.configuredCapacity).padStart(10)}${String(summary.maxConcurrency).padStart(18)}${formatCount(summary.maxPerBrowserConcurrency).padStart(13)}${formatDuration(summary.wallTimeMs).padStart(11)}${browserRunSpeedup(summary, browserRunBaseline).padStart(21)}`);
+		console.log(`${summary.mode.padEnd(22)}${summary.topology.padEnd(42)}${String(summary.scenarioCount).padStart(9)}${formatCount(summary.browserSessionCount).padStart(10)}${formatCount(summary.configuredCapacity).padStart(10)}${String(summary.maxConcurrency).padStart(18)}${formatCount(summary.maxPerBrowserConcurrency).padStart(13)}${formatDuration(summary.wallTimeMs).padStart(11)}${browserRunSpeedup(summary, browserRunBaseline).padStart(21)}`);
 	}
 
 	if (failures.length) {
@@ -178,6 +202,67 @@ function browserRunModeEnv(maxBrowsers) {
 		CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS: String(maxBrowsers),
 		CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER: String(benchmarkSessionsPerBrowser),
 	};
+}
+
+function browserRunTopology(maxBrowsers) {
+	return maxBrowsers === 1 ? 'browser-run-single-hosted-browser' : 'browser-run-pooled-hosted-browsers';
+}
+
+function assertBenchmarkContract(summaries) {
+	const comparable = summaries.filter((summary) => modeConfigs[summary.mode]?.comparable);
+	if (comparable.length < 2) {
+		return;
+	}
+
+	const [baseline, ...rest] = comparable;
+	const baselineContractId = baseline.metadata.benchmarkContractId;
+	const baselineTestCorpus = baseline.metadata.benchmarkTestCorpus;
+	const baselineScenarioIds = scenarioIds(baseline);
+
+	if (!baselineContractId || !baselineTestCorpus) {
+		throw new Error(`Benchmark mode ${baseline.mode} did not record the execution contract metadata.`);
+	}
+	assertModeEventsMatchContract(baseline);
+
+	for (const summary of rest) {
+		assertModeEventsMatchContract(summary);
+
+		if (summary.metadata.benchmarkContractId !== baselineContractId) {
+			throw new Error(`Benchmark mode ${summary.mode} used contract ${summary.metadata.benchmarkContractId || 'unknown'}, expected ${baselineContractId}.`);
+		}
+
+		if (summary.metadata.benchmarkTestCorpus !== baselineTestCorpus) {
+			throw new Error(`Benchmark mode ${summary.mode} used test corpus ${summary.metadata.benchmarkTestCorpus || 'unknown'}, expected ${baselineTestCorpus}.`);
+		}
+
+		const currentScenarioIds = scenarioIds(summary);
+		const missing = baselineScenarioIds.filter((id) => !currentScenarioIds.includes(id));
+		const extra = currentScenarioIds.filter((id) => !baselineScenarioIds.includes(id));
+		if (missing.length || extra.length) {
+			throw new Error(`Benchmark mode ${summary.mode} did not run the same scenario set as ${baseline.mode}. Missing: ${formatScenarioDiff(missing)}. Extra: ${formatScenarioDiff(extra)}.`);
+		}
+	}
+}
+
+function assertModeEventsMatchContract(summary) {
+	const contractId = summary.metadata.benchmarkContractId;
+	const testCorpus = summary.metadata.benchmarkTestCorpus;
+	const mismatchedEvent = summary.events.find((event) => event.benchmarkContractId !== contractId || event.benchmarkTestCorpus !== testCorpus);
+	if (mismatchedEvent) {
+		throw new Error(`Benchmark mode ${summary.mode} wrote event ${mismatchedEvent.scenarioId} with contract ${mismatchedEvent.benchmarkContractId || 'unknown'} and corpus ${mismatchedEvent.benchmarkTestCorpus || 'unknown'}, expected ${contractId} and ${testCorpus}.`);
+	}
+}
+
+function scenarioIds(summary) {
+	return summary.events.map((event) => event.scenarioId).sort();
+}
+
+function formatScenarioDiff(ids) {
+	if (!ids.length) {
+		return 'none';
+	}
+
+	return ids.slice(0, 5).join(', ') + (ids.length > 5 ? `, and ${ids.length - 5} more` : '');
 }
 
 function readBenchmarkSessionsPerBrowser() {

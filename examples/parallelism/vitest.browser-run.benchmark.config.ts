@@ -1,10 +1,9 @@
 import { cloudflare } from '@cloudflare/vite-plugin';
-import { defineConfig } from 'vitest/config';
 
 import { browserRunCdp } from '@cloudflare/vitest-browser-run-provider';
 import {
 	benchmarkSessionsPerBrowser,
-	benchmarkInclude,
+	benchmarkTestConfig,
 	browserApiHost,
 	browserApiPort,
 	browserRunAcquireIntervalMs,
@@ -16,7 +15,7 @@ import {
 
 loadDotEnv();
 
-export default defineConfig({
+export default {
 	plugins: [cloudflare({
 		tunnel: {
 			autoStart: true,
@@ -28,35 +27,28 @@ export default defineConfig({
 		strictPort: true,
 		allowedHosts: true,
 	},
-	test: {
-		include: benchmarkInclude,
-		fileParallelism: true,
-		maxWorkers: browserRunMaxWorkers,
+	test: benchmarkTestConfig({
+		api: {
+			allowExec: true,
+			allowWrite: true,
+			host: browserApiHost,
+			port: browserApiPort,
+		},
+		connectTimeout: 180000,
 		env: {
 			BENCHMARK_SESSIONS_PER_BROWSER: String(benchmarkSessionsPerBrowser),
 			CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS: String(browserRunMaxBrowsers),
 			CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER: String(browserRunSessionsPerBrowser),
-			VITEST_BENCHMARK_MODE: process.env.VITEST_BENCHMARK_MODE ?? 'browser-run',
 		},
-		browser: {
-			enabled: true,
-			connectTimeout: 180000,
-			headless: true,
-			fileParallelism: true,
-			provider: browserRunCdp({
-				pool: {
-					acquireIntervalMs: browserRunAcquireIntervalMs,
-					maxBrowsers: browserRunMaxBrowsers,
-					sessionsPerBrowser: browserRunSessionsPerBrowser,
-				},
-			}),
-			api: {
-				host: browserApiHost,
-				port: browserApiPort,
-				allowExec: true,
-				allowWrite: true,
+		maxWorkers: browserRunMaxWorkers,
+		mode: 'browser-run',
+		provider: browserRunCdp({
+			pool: {
+				acquireIntervalMs: browserRunAcquireIntervalMs,
+				maxBrowsers: browserRunMaxBrowsers,
+				sessionsPerBrowser: browserRunSessionsPerBrowser,
 			},
-			instances: [{ browser: 'chromium', viewport: { width: 1280, height: 800 } }],
-		},
-	},
-});
+		}),
+		topology: browserRunMaxBrowsers === 1 ? 'browser-run-single-hosted-browser' : 'browser-run-pooled-hosted-browsers',
+	}),
+};
