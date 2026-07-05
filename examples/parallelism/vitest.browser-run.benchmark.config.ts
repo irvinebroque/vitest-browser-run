@@ -8,6 +8,7 @@ import {
 	browserRunAcquireIntervalMs,
 	browserRunMaxWorkers,
 	browserRunMaxBrowsers,
+	browserRunSessionStartupConcurrency,
 	browserRunSessionsPerBrowser,
 	loadDotEnv,
 } from './vitest.benchmark.shared';
@@ -37,6 +38,7 @@ export default {
 		},
 		connectTimeout: 180000,
 		env: {
+			...(browserRunSessionStartupConcurrency ? { BENCHMARK_BROWSER_SESSION_STARTUP_CONCURRENCY: String(browserRunSessionStartupConcurrency) } : {}),
 			BENCHMARK_SESSIONS_PER_BROWSER: String(browserRunSessionsPerBrowser),
 			CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS: String(browserRunMaxBrowsers),
 			CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER: String(browserRunSessionsPerBrowser),
@@ -51,6 +53,7 @@ export default {
 				sessionsPerBrowser: browserRunSessionsPerBrowser,
 			},
 		}),
+		sessionStartupConcurrency: browserRunSessionStartupConcurrency,
 		topology: browserRunMaxBrowsers === 1 ? 'browser-run-single-hosted-browser' : 'browser-run-pooled-hosted-browsers',
 	}),
 };

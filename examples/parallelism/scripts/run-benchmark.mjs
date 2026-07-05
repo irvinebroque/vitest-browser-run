@@ -114,6 +114,7 @@ try {
 			benchmarkAppRuntime: childEnv.BENCHMARK_APP_RUNTIME ?? '',
 			benchmarkBrowserMode: childEnv.BENCHMARK_BROWSER_MODE ?? '',
 			benchmarkBrowserName: childEnv.BENCHMARK_BROWSER_NAME ?? '',
+			benchmarkBrowserSessionStartupConcurrency: childEnv.BENCHMARK_BROWSER_SESSION_STARTUP_CONCURRENCY ?? '',
 			benchmarkContractId: childEnv.BENCHMARK_CONTRACT_ID ?? '',
 			benchmarkProviderTopology: childEnv.BENCHMARK_PROVIDER_TOPOLOGY ?? '',
 			benchmarkSessionsPerBrowser: childEnv.BENCHMARK_SESSIONS_PER_BROWSER ?? '',
@@ -204,6 +205,13 @@ function browserRunSpeedup(summary, browserRunBaseline) {
 
 function browserRunModeEnv(maxBrowsers) {
 	return {
+		...(process.env.BENCHMARK_BROWSER_SESSION_STARTUP_CONCURRENCY
+			? {
+				BENCHMARK_BROWSER_SESSION_STARTUP_CONCURRENCY: String(
+					readPositiveIntegerEnv('BENCHMARK_BROWSER_SESSION_STARTUP_CONCURRENCY', maxBrowsers),
+				),
+			}
+			: {}),
 		BENCHMARK_SESSIONS_PER_BROWSER: String(browserRunBenchmarkSessionsPerBrowser),
 		CLOUDFLARE_BROWSER_RUN_MAX_BROWSERS: String(maxBrowsers),
 		CLOUDFLARE_BROWSER_RUN_SESSIONS_PER_BROWSER: String(browserRunBenchmarkSessionsPerBrowser),

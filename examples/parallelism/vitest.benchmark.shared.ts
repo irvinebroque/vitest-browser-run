@@ -22,6 +22,7 @@ interface BenchmarkTestConfigOptions {
 	maxWorkers: number;
 	mode: BenchmarkMode;
 	provider: BrowserProviderOption;
+	sessionStartupConcurrency?: number;
 	topology: string;
 }
 
@@ -46,6 +47,10 @@ export const browserRunAcquireIntervalMs = Number(process.env.CLOUDFLARE_BROWSER
 
 export const browserRunMaxWorkers = browserRunMaxBrowsers * browserRunSessionsPerBrowser;
 
+export const browserRunSessionStartupConcurrency = process.env.BENCHMARK_BROWSER_SESSION_STARTUP_CONCURRENCY
+	? Number(process.env.BENCHMARK_BROWSER_SESSION_STARTUP_CONCURRENCY)
+	: undefined;
+
 export function benchmarkTestConfig(options: BenchmarkTestConfigOptions) {
 	const fileParallelism = options.fileParallelism ?? true;
 	return {
@@ -61,6 +66,7 @@ export function benchmarkTestConfig(options: BenchmarkTestConfigOptions) {
 		browser: {
 			enabled: true,
 			...(options.connectTimeout ? { connectTimeout: options.connectTimeout } : {}),
+			...(options.sessionStartupConcurrency ? { sessionStartupConcurrency: options.sessionStartupConcurrency } : {}),
 			headless: true,
 			fileParallelism,
 			provider: options.provider,
